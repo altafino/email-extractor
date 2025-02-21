@@ -18,6 +18,7 @@ type App struct {
 	configID  string
 	watcher   *config.ConfigWatcher
 	wg        sync.WaitGroup
+	done      chan struct{}
 }
 
 // New creates a new application instance
@@ -25,6 +26,7 @@ func New(logger *slog.Logger, configDir string, configID string) (*App, error) {
 	app := &App{
 		logger:   logger,
 		configID: configID,
+		done:     make(chan struct{}),
 	}
 
 	// Load initial configurations
@@ -77,13 +79,20 @@ func (a *App) Start() error {
 
 // Stop gracefully stops all application services
 func (a *App) Stop() {
+	// Signal watchConfigs goroutine to stop
+	close(a.done)
+
 	if a.watcher != nil {
 		a.watcher.Stop()
 	}
 	if a.scheduler != nil {
 		a.scheduler.Stop()
 	}
+
+	// Wait for all goroutines to finish
 	a.wg.Wait()
+
+	a.logger.Info("application stopped gracefully")
 }
 
 func (a *App) startServices(cfg *types.Config) error {
@@ -107,32 +116,37 @@ func (a *App) startServices(cfg *types.Config) error {
 func (a *App) watchConfigs() {
 	defer a.wg.Done()
 
-	for range a.watcher.ReloadChan() {
-		a.logger.Info("reloading services due to configuration change")
+	for {
+		select {
+		case <-a.done:
+			return
+		case <-a.watcher.ReloadChan():
+			a.logger.Info("reloading services due to configuration change")
 
-		// Get updated configurations
-		var newConfigs []*types.Config
-		if a.configID != "" {
-			cfg, err := config.GetConfig(a.configID)
-			if err != nil {
-				a.logger.Error("failed to get updated config",
-					"id", a.configID,
-					"error", err,
-				)
-				continue
+			// Get updated configurations
+			var newConfigs []*types.Config
+			if a.configID != "" {
+				cfg, err := config.GetConfig(a.configID)
+				if err != nil {
+					a.logger.Error("failed to get updated config",
+						"id", a.configID,
+						"error", err,
+					)
+					continue
+				}
+				newConfigs = []*types.Config{cfg}
+			} else {
+				newConfigs = config.GetEnabledConfigs()
 			}
-			newConfigs = []*types.Config{cfg}
-		} else {
-			newConfigs = config.GetEnabledConfigs()
-		}
 
-		// Update services with new configurations
-		for _, cfg := range newConfigs {
-			if err := a.startServices(cfg); err != nil {
-				a.logger.Error("failed to update services",
-					"config_id", cfg.Meta.ID,
-					"error", err,
-				)
+			// Update services with new configurations
+			for _, cfg := range newConfigs {
+				if err := a.startServices(cfg); err != nil {
+					a.logger.Error("failed to update services",
+						"config_id", cfg.Meta.ID,
+						"error", err,
+					)
+				}
 			}
 		}
 	}

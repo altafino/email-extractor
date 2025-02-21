@@ -8,6 +8,9 @@ import (
 	"syscall"
 
 	"github.com/altafino/email-extractor/internal/app"
+	"github.com/altafino/email-extractor/internal/config"
+	applogger "github.com/altafino/email-extractor/internal/logger"
+	"github.com/altafino/email-extractor/internal/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -39,9 +42,11 @@ storing them in a specified location.`,
 
 func init() {
 	// Setup default logger until we load config
-	logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	// Create a default config for initial logging
+	defaultConfig := &types.Config{}
+	defaultConfig.Logging.Level = "info"
+	defaultConfig.Logging.Format = "text"
+	logger = applogger.Setup(defaultConfig)
 	slog.SetDefault(logger)
 
 	cobra.OnInitialize(initConfig)
@@ -72,6 +77,21 @@ func initConfig() {
 		os.Exit(1)
 	}
 
+	// Update logger with loaded configuration
+	if configID != "" {
+		if cfg, err := config.GetConfig(configID); err == nil {
+			logger = applogger.Setup(cfg)
+			slog.SetDefault(logger)
+		}
+	} else {
+		// Use first enabled config for logging settings
+		configs := config.GetEnabledConfigs()
+		if len(configs) > 0 {
+			logger = applogger.Setup(configs[0])
+			slog.SetDefault(logger)
+		}
+	}
+
 	// List available configurations
 	configs := config.ListConfigs()
 	if len(configs) == 0 {
@@ -93,43 +113,12 @@ func initConfig() {
 	}
 }
 
-func setupLogger(cfg *types.Config) *slog.Logger {
-	var level slog.Level
-	switch cfg.Logging.Level {
-	case "debug":
-		level = slog.LevelDebug
-	case "info":
-		level = slog.LevelInfo
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
-
-	opts := &slog.HandlerOptions{
-		Level:     level,
-		AddSource: cfg.Logging.IncludeCaller,
-	}
-
-	var handler slog.Handler
-	if cfg.Logging.Format == "json" {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
-	} else {
-		handler = slog.NewTextHandler(os.Stdout, opts)
-	}
-
-	return slog.New(handler)
-}
-
 func run(cmd *cobra.Command, args []string) error {
 	// Create and start application
 	app, err := app.New(logger, "./config", configID)
 	if err != nil {
 		return fmt.Errorf("failed to create application: %w", err)
 	}
-	defer app.Stop()
 
 	// Start the application
 	if err := app.Start(); err != nil {
@@ -139,8 +128,10 @@ func run(cmd *cobra.Command, args []string) error {
 	// Wait for shutdown signal
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
+	sig := <-stop
+	logger.Info("received shutdown signal", "signal", sig)
 
-	logger.Info("shutting down application")
+	// Gracefully shutdown the application
+	app.Stop()
 	return nil
 }
