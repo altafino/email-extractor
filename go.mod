@@ -6,8 +6,6 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-co-op/gocron v1.37.0
 	github.com/imdario/mergo v0.3.16
-	github.com/emersion/go-pop3 v0.0.0-20190116164530-ba5d4147419e
-	github.com/emersion/go-message v0.18.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
 	gopkg.in/yaml.v3 v3.0.1
