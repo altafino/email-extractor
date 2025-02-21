@@ -19,14 +19,17 @@ email:
   protocols:
     imap:
       enabled: true
-      default_port: 993  # Default SSL/TLS port
-      insecure_port: 143  # Non-SSL port
-      idle_timeout: 60  # IMAP IDLE timeout
-      batch_size: 100  # Number of emails to fetch per batch
+      default_port: 993
+      insecure_port: 143
+      idle_timeout: 60
+      batch_size: 100
     pop3:
       enabled: true
-      default_port: 995  # Default SSL/TLS port
-      insecure_port: 110  # Non-SSL port
+      default_port: 995
+      insecure_port: 110
+      server: "pop.example.com"
+      username: "user@example.com"
+      password: "your-password"  # Consider using environment variables
       delete_after_download: false
   security:
     tls:

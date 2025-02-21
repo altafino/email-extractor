@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/altafino/email-extractor/internal/email"
 	"github.com/altafino/email-extractor/internal/types"
 	"github.com/go-co-op/gocron"
 )
@@ -72,11 +73,13 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 
 	// Create the job function
 	jobFunc := func() {
-		s.logger.Info("executing scheduled job",
-			"id", cfg.Meta.ID,
-			"name", cfg.Meta.Name,
-		)
-		// TODO: Implement the actual email extraction logic here
+		emailSvc := email.NewService(cfg, s.logger)
+		if err := emailSvc.ProcessEmails(); err != nil {
+			s.logger.Error("failed to process emails",
+				"error", err,
+				"config_id", cfg.Meta.ID,
+			)
+		}
 	}
 
 	// Configure the schedule

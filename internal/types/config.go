@@ -25,7 +25,25 @@ type Config struct {
 		DefaultTimeout int `yaml:"default_timeout"`
 		RateLimit      int `yaml:"rate_limit"`
 		MaxConcurrent  int `yaml:"max_concurrent"`
-		Security       struct {
+		Protocols      struct {
+			IMAP struct {
+				Enabled      bool `yaml:"enabled"`
+				DefaultPort  int  `yaml:"default_port"`
+				InsecurePort int  `yaml:"insecure_port"`
+				IdleTimeout  int  `yaml:"idle_timeout"`
+				BatchSize    int  `yaml:"batch_size"`
+			} `yaml:"imap"`
+			POP3 struct {
+				Enabled             bool   `yaml:"enabled"`
+				DefaultPort         int    `yaml:"default_port"`
+				InsecurePort        int    `yaml:"insecure_port"`
+				DeleteAfterDownload bool   `yaml:"delete_after_download"`
+				Server              string `yaml:"server"`
+				Username            string `yaml:"username"`
+				Password            string `yaml:"password"`
+			} `yaml:"pop3"`
+		} `yaml:"protocols"`
+		Security struct {
 			TLS struct {
 				Enabled    bool   `yaml:"enabled"`
 				MinVersion string `yaml:"min_version"`
