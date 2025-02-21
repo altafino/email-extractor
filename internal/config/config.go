@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,10 +18,20 @@ type ConfigStore struct {
 
 var (
 	globalStore *ConfigStore
+	logger      *slog.Logger
 )
+
+// InitLogger sets up the logger for the config package
+func InitLogger(l *slog.Logger) {
+	logger = l
+}
 
 // LoadConfigs loads all configuration files from the specified directory
 func LoadConfigs(configDir string) error {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	store := &ConfigStore{
 		configs: make(map[string]*types.Config),
 	}
@@ -72,6 +83,12 @@ func LoadConfigs(configDir string) error {
 		}
 
 		store.configs[cfg.Meta.ID] = cfg
+
+		logger.Debug("loaded configuration",
+			"id", cfg.Meta.ID,
+			"pop3_server", cfg.Email.Protocols.POP3.Server,
+			"pop3_username", cfg.Email.Protocols.POP3.Username,
+		)
 	}
 
 	globalStore = store
@@ -84,9 +101,22 @@ func loadSingleConfig(path string) (*types.Config, error) {
 		return nil, err
 	}
 
+	// Expand environment variables in the config file
+	expandedData := os.ExpandEnv(string(data))
+
 	config := &types.Config{}
-	if err := yaml.Unmarshal(data, config); err != nil {
+	if err := yaml.Unmarshal([]byte(expandedData), config); err != nil {
 		return nil, err
+	}
+
+	// Log the POP3 configuration after environment variable expansion
+	if config.Email.Protocols.POP3.Enabled {
+		logger.Debug("POP3 configuration loaded",
+			"server", config.Email.Protocols.POP3.Server,
+			"username", config.Email.Protocols.POP3.Username,
+			"port", config.Email.Protocols.POP3.DefaultPort,
+			"tls_enabled", config.Email.Security.TLS.Enabled,
+		)
 	}
 
 	return config, nil

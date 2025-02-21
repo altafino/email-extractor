@@ -18,7 +18,7 @@ email:
   max_concurrent: 5
   protocols:
     imap:
-      enabled: true
+      enabled: false
       default_port: 993
       insecure_port: 143
       idle_timeout: 60
@@ -27,9 +27,9 @@ email:
       enabled: true
       default_port: 995
       insecure_port: 110
-      server: "pop.example.com"
-      username: "user@example.com"
-      password: "your-password"  # Consider using environment variables
+      server: "email-ssl.com.br"  # Example for Gmail POP3
+      username: "ah@ecogotas.com.br" #"${POP3_USERNAME}"  # Will be replaced with environment variable
+      password: "H4ld3m4nn76@!" #"${POP3_PASSWORD}"  # Will be replaced with environment variable
       delete_after_download: false
   security:
     tls:
@@ -148,9 +148,9 @@ monitoring:
 scheduling:
   enabled: true
   frequency_every: "minute"
-  frequency_amount: 1
-  start_now: false
+  frequency_amount: 3
+  start_now: true
   start_at: "2024-03-15T00:00:00Z"
-  stop_at: "2024-12-31T23:59:59Z"
+  stop_at: "2025-12-31T23:59:59Z"
 
 # ... rest of the configuration remains the same ... 

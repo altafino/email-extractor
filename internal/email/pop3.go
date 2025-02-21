@@ -1,32 +1,26 @@
 package email
 
 import (
-	"bufio"
-	"crypto/tls"
+	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
-	"net/textproto"
+	"mime"
+	"mime/multipart"
+	"net/mail"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/altafino/email-extractor/internal/models"
 	"github.com/altafino/email-extractor/internal/types"
+	"github.com/knadh/go-pop3"
 )
 
 type POP3Client struct {
-	cfg      *types.Config
-	logger   *slog.Logger
-	conn     net.Conn
-	text     *textproto.Conn
-	host     string
-	port     int
-	username string
-	password string
+	cfg    *types.Config
+	logger *slog.Logger
 }
 
 func NewPOP3Client(cfg *types.Config, logger *slog.Logger) *POP3Client {
@@ -36,113 +30,97 @@ func NewPOP3Client(cfg *types.Config, logger *slog.Logger) *POP3Client {
 	}
 }
 
-func (c *POP3Client) Connect(emailCfg models.EmailConfig) error {
-	c.host = emailCfg.Server
-	c.port = emailCfg.Port
-	c.username = emailCfg.Username
-	c.password = emailCfg.Password
+func (c *POP3Client) Connect(emailCfg models.EmailConfig) (*pop3.Conn, error) {
 
-	addr := fmt.Sprintf("%s:%d", c.host, c.port)
+	c.logger.Info("connecting to POP3 server",
+		"server", emailCfg.Server,
+		"port", emailCfg.Port,
+		"tls_enabled", emailCfg.EnableTLS,
+		"username", emailCfg.Username,
+		"password", emailCfg.Password,
+		"tls_skip_verify", !c.cfg.Email.Security.TLS.VerifyCert,
+		"tls_config", c.cfg.Email.Security.TLS,
+	)
 
-	var err error
-	if emailCfg.EnableTLS {
-		c.conn, err = tls.Dial("tcp", addr, &tls.Config{
-			ServerName:         c.host,
-			InsecureSkipVerify: !c.cfg.Email.Security.TLS.VerifyCert,
-		})
-	} else {
-		c.conn, err = net.Dial("tcp", addr)
-	}
+	// Initialize POP3 client
+	p := pop3.New(pop3.Opt{
+		Host:          emailCfg.Server,
+		Port:          emailCfg.Port,
+		TLSEnabled:    emailCfg.EnableTLS,
+		TLSSkipVerify: !c.cfg.Email.Security.TLS.VerifyCert,
+	})
 
+	// Create new connection
+	conn, err := p.NewConn()
 	if err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
+		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 
-	c.text = textproto.NewConn(c.conn)
-
-	// Read greeting
-	_, err = c.text.ReadLine()
-	if err != nil {
-		return fmt.Errorf("failed to read greeting: %w", err)
+	// Authenticate
+	if err := conn.Auth(emailCfg.Username, emailCfg.Password); err != nil {
+		conn.Quit()
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
-	// Send USER command
-	if err := c.text.PrintfLine("USER %s", c.username); err != nil {
-		return fmt.Errorf("failed to send USER command: %w", err)
-	}
-	if _, err = c.text.ReadLine(); err != nil {
-		return fmt.Errorf("failed to read USER response: %w", err)
-	}
-
-	// Send PASS command
-	if err := c.text.PrintfLine("PASS %s", c.password); err != nil {
-		return fmt.Errorf("failed to send PASS command: %w", err)
-	}
-	if _, err = c.text.ReadLine(); err != nil {
-		return fmt.Errorf("failed to read PASS response: %w", err)
-	}
-
-	return nil
-}
-
-func (c *POP3Client) Quit() error {
-	if c.text != nil {
-		if err := c.text.PrintfLine("QUIT"); err != nil {
-			return fmt.Errorf("failed to send QUIT command: %w", err)
-		}
-		c.text.Close()
-	}
-	if c.conn != nil {
-		c.conn.Close()
-	}
-	return nil
+	c.logger.Info("successfully connected to POP3 server")
+	return conn, nil
 }
 
 func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
-	if err := c.Connect(req.Config); err != nil {
+	c.logger.Info("starting email download")
+
+	conn, err := c.Connect(req.Config)
+	if err != nil {
 		return nil, err
 	}
-	defer c.Quit()
+	defer conn.Quit()
 
 	// Get message count
-	if err := c.text.PrintfLine("STAT"); err != nil {
-		return nil, fmt.Errorf("failed to send STAT command: %w", err)
-	}
-	line, err := c.text.ReadLine()
+	count, size, err := conn.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read STAT response: %w", err)
+		return nil, fmt.Errorf("failed to get mailbox stats: %w", err)
 	}
 
-	parts := strings.Fields(line)
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid STAT response: %s", line)
-	}
-
-	count, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return nil, fmt.Errorf("invalid message count: %w", err)
-	}
+	c.logger.Info("mailbox stats",
+		"messages", count,
+		"total_size", size,
+	)
 
 	var results []models.DownloadResult
 
-	for i := 1; i <= count; i++ {
+	// Get list of all messages
+	messages, err := conn.List(0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list messages: %w", err)
+	}
+
+	for _, msg := range messages {
 		result := models.DownloadResult{
-			MessageID:    fmt.Sprintf("%d", i),
+			MessageID:    fmt.Sprintf("%d", msg.ID),
 			DownloadedAt: time.Now().UTC(),
 			Status:       "processing",
 		}
 
 		// Get message
-		if err := c.text.PrintfLine("RETR %d", i); err != nil {
+		msgReader, err := conn.Retr(msg.ID)
+		if err != nil {
 			result.Status = "error"
-			result.ErrorMessage = fmt.Sprintf("failed to send RETR command: %v", err)
+			result.ErrorMessage = fmt.Sprintf("failed to retrieve message: %v", err)
 			results = append(results, result)
 			continue
 		}
 
-		// Read message content
-		msgReader := c.text.DotReader()
-		msg, err := c.parseEmail(msgReader)
+		// Convert message.Entity to io.Reader
+		messageBytes, err := io.ReadAll(msgReader.Body)
+		if err != nil {
+			result.Status = "error"
+			result.ErrorMessage = fmt.Sprintf("failed to read message body: %v", err)
+			results = append(results, result)
+			continue
+		}
+
+		// Parse the email message
+		message, err := mail.ReadMessage(bytes.NewReader(messageBytes))
 		if err != nil {
 			result.Status = "error"
 			result.ErrorMessage = fmt.Sprintf("failed to parse message: %v", err)
@@ -150,8 +128,17 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 			continue
 		}
 
-		result.Subject = msg.subject
-		result.Attachments = msg.attachments
+		// Get subject from headers
+		result.Subject = message.Header.Get("Subject")
+
+		// Process attachments
+		err = c.processAttachments(message, &result)
+		if err != nil {
+			result.Status = "error"
+			result.ErrorMessage = fmt.Sprintf("failed to process attachments: %v", err)
+			results = append(results, result)
+			continue
+		}
 
 		if len(result.Attachments) > 0 {
 			result.Status = "completed"
@@ -163,9 +150,9 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 
 		// Delete message if configured
 		if req.Config.DeleteAfterDownload {
-			if err := c.text.PrintfLine("DELE %d", i); err != nil {
+			if err := conn.Dele(msg.ID); err != nil {
 				c.logger.Error("failed to delete message",
-					"message_id", i,
+					"message_id", msg.ID,
 					"error", err,
 				)
 			}
@@ -175,100 +162,66 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 	return results, nil
 }
 
-type emailMessage struct {
-	subject     string
-	attachments []string
-}
+func (c *POP3Client) processAttachments(message *mail.Message, result *models.DownloadResult) error {
+	// Get the Content-Type header
+	contentType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	if err != nil {
+		return fmt.Errorf("failed to parse content type: %w", err)
+	}
 
-func (c *POP3Client) parseEmail(r io.Reader) (*emailMessage, error) {
-	msg := &emailMessage{}
-	reader := bufio.NewReader(r)
+	// Handle multipart messages
+	if strings.HasPrefix(contentType, "multipart/") {
+		boundary := params["boundary"]
+		if boundary == "" {
+			return fmt.Errorf("no boundary found in multipart message")
+		}
 
-	// Read headers
-	inHeader := true
-	var boundary string
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
+		reader := multipart.NewReader(message.Body, boundary)
+		for {
+			part, err := reader.NextPart()
 			if err == io.EOF {
 				break
 			}
-			return nil, err
-		}
-		line = strings.TrimSpace(line)
-
-		if inHeader {
-			if line == "" {
-				inHeader = false
+			if err != nil {
+				c.logger.Error("failed to read part", "error", err)
 				continue
 			}
-			if strings.HasPrefix(strings.ToLower(line), "subject:") {
-				msg.subject = strings.TrimPrefix(line, "Subject:")
-				msg.subject = strings.TrimSpace(msg.subject)
+
+			// Check if this part is an attachment
+			filename := part.FileName()
+			if filename == "" {
+				continue // Not an attachment
 			}
-			if strings.HasPrefix(strings.ToLower(line), "content-type:") {
-				if idx := strings.Index(line, "boundary="); idx != -1 {
-					boundary = strings.Trim(line[idx+9:], `"'`)
-				}
-			}
-		} else {
-			if boundary != "" && strings.HasPrefix(line, "--"+boundary) {
-				attachment, err := c.parseAttachment(reader)
-				if err != nil {
-					c.logger.Error("failed to parse attachment", "error", err)
-					continue
-				}
-				if attachment != "" {
-					msg.attachments = append(msg.attachments, attachment)
-				}
-			}
-		}
-	}
 
-	return msg, nil
-}
-
-func (c *POP3Client) parseAttachment(reader *bufio.Reader) (string, error) {
-	var filename string
-	var content []byte
-	inHeader := true
-
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return "", err
-		}
-		line = strings.TrimSpace(line)
-
-		if inHeader {
-			if line == "" {
-				inHeader = false
+			if !c.isAllowedAttachment(filename) {
+				c.logger.Debug("skipping disallowed attachment", "filename", filename)
 				continue
 			}
-			if strings.HasPrefix(strings.ToLower(line), "content-disposition:") {
-				if idx := strings.Index(strings.ToLower(line), "filename="); idx != -1 {
-					filename = strings.Trim(line[idx+9:], `"'`)
-					if !c.isAllowedAttachment(filename) {
-						return "", nil
-					}
-				}
+
+			// Read attachment content
+			content, err := io.ReadAll(part)
+			if err != nil {
+				c.logger.Error("failed to read attachment content",
+					"filename", filename,
+					"error", err,
+				)
+				continue
 			}
-		} else {
-			if line == "" {
-				break
+
+			// Save attachment
+			if err := c.saveAttachment(filename, content); err != nil {
+				c.logger.Error("failed to save attachment",
+					"filename", filename,
+					"error", err,
+				)
+				continue
 			}
-			content = append(content, []byte(line)...)
+
+			result.Attachments = append(result.Attachments, filename)
 		}
 	}
 
-	if filename != "" && len(content) > 0 {
-		if err := c.saveAttachment(filename, content); err != nil {
-			return "", err
-		}
-		return filename, nil
-	}
-
-	return "", nil
+	return nil
 }
 
 func (c *POP3Client) isAllowedAttachment(filename string) bool {
@@ -388,4 +341,15 @@ func (c *POP3Client) generateFilename(originalName string, downloadTime time.Tim
 	pattern = strings.ReplaceAll(pattern, "${date}", downloadTime.Format("2006-01-02"))
 	pattern = strings.ReplaceAll(pattern, "${filename}", originalName)
 	return pattern
+}
+
+func (c *POP3Client) checkResponse(response string, context string) error {
+	if strings.HasPrefix(response, "-ERR") {
+		c.logger.Error("server error",
+			"context", context,
+			"response", response,
+		)
+		return fmt.Errorf("%s failed: %s", context, response)
+	}
+	return nil
 }

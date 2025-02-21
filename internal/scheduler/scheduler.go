@@ -73,6 +73,11 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 
 	// Create the job function
 	jobFunc := func() {
+		s.logger.Info("executing scheduled job",
+			"config_id", cfg.Meta.ID,
+			"time", time.Now().UTC(),
+		)
+
 		emailSvc := email.NewService(cfg, s.logger)
 		if err := emailSvc.ProcessEmails(); err != nil {
 			s.logger.Error("failed to process emails",
@@ -84,6 +89,14 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 
 	// Configure the schedule
 	job := s.scheduler.Every(cfg.Scheduling.FrequencyAmount)
+
+	// If start_now is true, run the job immediately
+	if cfg.Scheduling.StartNow {
+		s.logger.Info("running job immediately",
+			"config_id", cfg.Meta.ID,
+		)
+		jobFunc()
+	}
 
 	switch cfg.Scheduling.FrequencyEvery {
 	case "minute":

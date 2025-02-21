@@ -67,6 +67,9 @@ func init() {
 }
 
 func initConfig() {
+	// Initialize config package logger
+	config.InitLogger(logger)
+
 	configDir := "./config"
 	if cfgFile != "" {
 		configDir = cfgFile
