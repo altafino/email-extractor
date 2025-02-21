@@ -1,0 +1,145 @@
+meta:
+  id: "default"
+  name: "Default Configuration"
+  description: "Default email extraction configuration changed"
+  template: "base"
+  enabled: true
+
+server:
+  port: 8080
+  host: "0.0.0.0"
+  read_timeout: 30
+  write_timeout: 30
+  idle_timeout: 60
+
+email:
+  default_timeout: 300
+  rate_limit: 100
+  max_concurrent: 5
+  protocols:
+    imap:
+      enabled: true
+      default_port: 993  # Default SSL/TLS port
+      insecure_port: 143  # Non-SSL port
+      idle_timeout: 60  # IMAP IDLE timeout
+      batch_size: 100  # Number of emails to fetch per batch
+    pop3:
+      enabled: true
+      default_port: 995  # Default SSL/TLS port
+      insecure_port: 110  # Non-SSL port
+      delete_after_download: false
+  security:
+    tls:
+      enabled: true
+      min_version: "1.2"
+      verify_cert: true
+      cert_file: ""  # Optional client certificate
+      key_file: ""   # Optional client key
+    oauth2:
+      enabled: false
+      providers:
+        google:
+          client_id: ""
+          client_secret: ""
+          redirect_url: "http://localhost:8080/auth/callback"
+          auth_url: "https://accounts.google.com/o/oauth2/auth"
+          token_url: "https://oauth2.googleapis.com/token"
+          scopes:
+            - "https://mail.google.com/"
+        microsoft:
+          client_id: ""
+          client_secret: ""
+          redirect_url: "http://localhost:8080/auth/callback"
+          auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+          token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+          scopes:
+            - "https://outlook.office.com/IMAP.AccessAsUser.All"
+            - "https://outlook.office.com/POP.AccessAsUser.All"
+            - "offline_access"
+  retry:
+    max_attempts: 3
+    delay: 5
+  attachments:
+    allowed_types:
+      - ".pdf"
+      - ".docx"
+      - ".xlsx"
+      - ".zip"
+      - ".jpg"
+      - ".jpeg"
+      - ".png"
+      - ".txt"
+      - ".csv"
+    max_size: 26214400  # 25MB in bytes
+    storage_path: "/home/stefan/data/attachments"
+    naming_pattern: "${date}_${filename}"
+    preserve_structure: true
+    scan_nested: true
+    sanitize_filenames: true
+
+security:
+  allowed_ips:
+    - "127.0.0.1"
+    - "::1"
+  api_keys:
+    - "test-key-1234567890abcdef"
+  cors:
+    enabled: true
+    allowed_origins:
+      - "http://localhost:3000"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+    allowed_headers:
+      - "Authorization"
+      - "Content-Type"
+    expose_headers:
+      - "X-Request-ID"
+    max_age: 3600
+    allow_credentials: true
+  rate_limiting:
+    enabled: true
+    requests_per_second: 10
+    burst: 50
+
+logging:
+  level: "debug"  # debug, info, warn, error
+  format: "json" # json, text
+  output: "stdout"  # stdout, file
+  file_path: "/var/log/email-extractor.log"
+  include_caller: true
+  redact_sensitive: true
+  rotation:
+    enabled: true
+    max_size: 100  # MB
+    max_age: 30    # days
+    max_backups: 5
+    compress: true
+
+monitoring:
+  metrics_enabled: true
+  metrics_path: "/metrics"
+  health_check_path: "/health"
+  tracing:
+    enabled: true
+    exporter: "jaeger"
+    endpoint: "http://jaeger:14268/api/traces"
+    sample_rate: 0.1
+  profiling:
+    enabled: true
+    path: "/debug/pprof"
+  alerts:
+    enabled: true
+    endpoints:
+      - type: "slack"
+        url: "https://hooks.slack.com/services/xxx/yyy/zzz"
+      - type: "email"
+        address: "alerts@example.com"
+    thresholds:
+      error_rate: 0.01
+      response_time_ms: 1000
+      disk_usage_percent: 90
+
+# ... rest of the configuration remains the same ... 

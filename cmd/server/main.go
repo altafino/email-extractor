@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/altafino/email-extractor/internal/config"
+	"github.com/altafino/email-extractor/internal/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -16,6 +19,8 @@ var (
 	logFormat   string
 	serverPort  int
 	metricsPort int
+	configID    string
+	logger      *slog.Logger
 )
 
 func main() {
@@ -34,10 +39,17 @@ storing them in a specified location.`,
 }
 
 func init() {
+	// Setup default logger until we load config
+	logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	cobra.OnInitialize(initConfig)
 
 	// Command line flags
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config/config.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config-dir", "", "config directory (default is ./config)")
+	rootCmd.PersistentFlags().StringVar(&configID, "config-id", "", "specific config ID to use")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "override logging level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "", "override logging format (text, json)")
 	rootCmd.PersistentFlags().IntVar(&serverPort, "port", 0, "override server port")
@@ -51,29 +63,38 @@ func init() {
 }
 
 func initConfig() {
+	configDir := "./config"
 	if cfgFile != "" {
-		// Use config file from the flag
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Search for config in default locations
-		viper.AddConfigPath("./config")
-		viper.AddConfigPath("/etc/email-extractor")
-		viper.SetConfigName("config")
-		viper.SetConfigType("yaml")
+		configDir = cfgFile
 	}
 
-	// Read environment variables
-	viper.SetEnvPrefix("EMAIL_EXTRACTOR")
-	viper.AutomaticEnv()
-
-	// Read config
-	if err := viper.ReadInConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading config file: %v\n", err)
+	if err := config.LoadConfigs(configDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading configs: %v\n", err)
 		os.Exit(1)
+	}
+
+	// List available configurations
+	configs := config.ListConfigs()
+	if len(configs) == 0 {
+		fmt.Fprintf(os.Stderr, "No configurations found in %s\n", configDir)
+		os.Exit(1)
+	}
+
+	logger.Info("loaded configurations",
+		"count", len(configs),
+		"enabled", len(config.GetEnabledConfigs()),
+	)
+
+	for _, cfg := range configs {
+		logger.Info("configuration loaded",
+			"id", cfg.Meta.ID,
+			"name", cfg.Meta.Name,
+			"enabled", cfg.Meta.Enabled,
+		)
 	}
 }
 
-func setupLogger(cfg *config.Config) *slog.Logger {
+func setupLogger(cfg *types.Config) *slog.Logger {
 	var level slog.Level
 	switch cfg.Logging.Level {
 	case "debug":
@@ -104,25 +125,92 @@ func setupLogger(cfg *config.Config) *slog.Logger {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	// Load configuration
-	cfg := &config.Config{}
-	if err := viper.Unmarshal(cfg); err != nil {
-		return fmt.Errorf("failed to parse config: %w", err)
+	var configs []*types.Config
+
+	if configID != "" {
+		// Use specific configuration
+		cfg, err := config.GetConfig(configID)
+		if err != nil {
+			return fmt.Errorf("failed to get config %s: %w", configID, err)
+		}
+		configs = []*types.Config{cfg}
+	} else {
+		// Use all enabled configurations
+		configs = config.GetEnabledConfigs()
 	}
 
-	// Setup logger
-	logger := setupLogger(cfg)
-	slog.SetDefault(logger)
+	// Start configuration watcher
+	watcher, err := config.StartWatcher("./config", logger)
+	if err != nil {
+		return fmt.Errorf("failed to start config watcher: %w", err)
+	}
+	defer watcher.Stop()
 
-	logger.Info("starting email-extractor service",
-		"version", "1.0.0",
-		"config_file", viper.ConfigFileUsed(),
+	// Channel for graceful shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	// Start services for initial configurations
+	for _, cfg := range configs {
+		if err := startServices(cfg); err != nil {
+			return err
+		}
+	}
+
+	// Watch for configuration changes
+	go func() {
+		for range watcher.ReloadChan() {
+			logger.Info("reloading services due to configuration change")
+
+			// Get updated configurations
+			var newConfigs []*types.Config
+			if configID != "" {
+				cfg, err := config.GetConfig(configID)
+				if err != nil {
+					logger.Error("failed to get updated config",
+						"id", configID,
+						"error", err,
+					)
+					continue
+				}
+				newConfigs = []*types.Config{cfg}
+			} else {
+				newConfigs = config.GetEnabledConfigs()
+			}
+
+			// Update services with new configurations
+			for _, cfg := range newConfigs {
+				if err := updateServices(cfg); err != nil {
+					logger.Error("failed to update services",
+						"config_id", cfg.Meta.ID,
+						"error", err,
+					)
+				}
+			}
+		}
+	}()
+
+	// Wait for shutdown signal
+	<-stop
+	logger.Info("shutting down services")
+	return nil
+}
+
+func startServices(cfg *types.Config) error {
+	// Setup logger for this configuration
+	logger := setupLogger(cfg)
+
+	logger.Info("starting service with configuration",
+		"id", cfg.Meta.ID,
+		"name", cfg.Meta.Name,
 		"port", cfg.Server.Port,
 	)
 
-	// TODO: Initialize and start the API server
-	// This will be implemented in the next step when we create the API package
+	// TODO: Initialize and start services for this configuration
+	return nil
+}
 
-	// Block until signal received
-	select {}
+func updateServices(cfg *types.Config) error {
+	// TODO: Update running services with new configuration
+	return nil
 }
