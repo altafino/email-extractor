@@ -64,15 +64,24 @@ email:
     delay: 5
   attachments:
     allowed_types:
-      - ".pdf"
-      - ".docx"
-      - ".xlsx"
-      - ".zip"
       - ".jpg"
       - ".jpeg"
       - ".png"
+      - ".gif"
+      - ".pdf"
+      - ".xml"
+      - ".xlsx"
+      - ".xls"
+      - ".doc"
+      - ".docx"
+      - ".ppt"
+      - ".pptx"
       - ".txt"
       - ".csv"
+      - ".zip"
+      - ".rar"
+      - ".7z"
+      - ".rtf"
     max_size: 26214400  # 25MB in bytes
     storage_path: "/home/stefan/data/attachments"
     naming_pattern: "${date}_${filename}"
