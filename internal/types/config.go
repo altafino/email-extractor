@@ -25,7 +25,16 @@ type Config struct {
 		DefaultTimeout int `yaml:"default_timeout"`
 		RateLimit      int `yaml:"rate_limit"`
 		MaxConcurrent  int `yaml:"max_concurrent"`
-		Retry          struct {
+		Security       struct {
+			TLS struct {
+				Enabled    bool   `yaml:"enabled"`
+				MinVersion string `yaml:"min_version"`
+				VerifyCert bool   `yaml:"verify_cert"`
+				CertFile   string `yaml:"cert_file"`
+				KeyFile    string `yaml:"key_file"`
+			} `yaml:"tls"`
+		} `yaml:"security"`
+		Retry struct {
 			MaxAttempts int `yaml:"max_attempts"`
 			Delay       int `yaml:"delay"`
 		} `yaml:"retry"`

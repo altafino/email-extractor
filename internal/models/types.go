@@ -3,12 +3,13 @@ package models
 import "time"
 
 type EmailConfig struct {
-	Protocol  string `json:"protocol" yaml:"protocol"` // "imap" or "pop3"
-	Server    string `json:"server" yaml:"server"`
-	Port      int    `json:"port" yaml:"port"`
-	Username  string `json:"username" yaml:"username"`
-	Password  string `json:"password" yaml:"password"`
-	EnableTLS bool   `json:"enable_tls" yaml:"enable_tls"`
+	Protocol            string `json:"protocol" yaml:"protocol"` // "imap" or "pop3"
+	Server              string `json:"server" yaml:"server"`
+	Port                int    `json:"port" yaml:"port"`
+	Username            string `json:"username" yaml:"username"`
+	Password            string `json:"password" yaml:"password"`
+	EnableTLS           bool   `json:"enable_tls" yaml:"enable_tls"`
+	DeleteAfterDownload bool   `json:"delete_after_download" yaml:"delete_after_download"`
 }
 
 type AttachmentConfig struct {
