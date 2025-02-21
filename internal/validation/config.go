@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/altafino/email-extractor/internal/types"
 )
@@ -28,6 +29,10 @@ func ValidateConfig(cfg *types.Config) error {
 
 	if err := validateLogging(cfg); err != nil {
 		return fmt.Errorf("logging validation failed: %w", err)
+	}
+
+	if err := validateScheduling(cfg); err != nil {
+		return fmt.Errorf("scheduling validation failed: %w", err)
 	}
 
 	return nil
@@ -167,6 +172,88 @@ func validateLogging(cfg *types.Config) error {
 
 	if cfg.Logging.Output == "file" && cfg.Logging.FilePath == "" {
 		return fmt.Errorf("logging.file_path is required when output is 'file'")
+	}
+
+	return nil
+}
+
+func validateScheduling(cfg *types.Config) error {
+	if !cfg.Scheduling.Enabled {
+		return nil // Skip validation if scheduling is disabled
+	}
+
+	// Validate frequency_every
+	validFrequencies := map[string]bool{
+		"minute": true,
+		"hour":   true,
+		"day":    true,
+		"week":   true,
+		"month":  true,
+	}
+
+	if !validFrequencies[cfg.Scheduling.FrequencyEvery] {
+		return fmt.Errorf("scheduling.frequency_every must be one of: minute, hour, day, week, month")
+	}
+
+	// Validate frequency_amount
+	if cfg.Scheduling.FrequencyAmount < 1 {
+		return fmt.Errorf("scheduling.frequency_amount must be greater than 0")
+	}
+
+	// Validate start and stop times if provided
+	if !cfg.Scheduling.StartNow {
+		if cfg.Scheduling.StartAt == "" {
+			return fmt.Errorf("scheduling.start_at is required when start_now is false")
+		}
+		if _, err := time.Parse(time.RFC3339, cfg.Scheduling.StartAt); err != nil {
+			return fmt.Errorf("scheduling.start_at must be in RFC3339 format (e.g., 2006-01-02T15:04:05Z)")
+		}
+	}
+
+	if cfg.Scheduling.StopAt != "" {
+		stopAt, err := time.Parse(time.RFC3339, cfg.Scheduling.StopAt)
+		if err != nil {
+			return fmt.Errorf("scheduling.stop_at must be in RFC3339 format (e.g., 2006-01-02T15:04:05Z)")
+		}
+
+		// If start_at is provided, validate stop_at is after start_at
+		if cfg.Scheduling.StartAt != "" {
+			startAt, _ := time.Parse(time.RFC3339, cfg.Scheduling.StartAt)
+			if stopAt.Before(startAt) {
+				return fmt.Errorf("scheduling.stop_at must be after start_at")
+			}
+		}
+
+		// If start_now is true, validate stop_at is in the future
+		if cfg.Scheduling.StartNow {
+			if stopAt.Before(time.Now().UTC()) {
+				return fmt.Errorf("scheduling.stop_at must be in the future when start_now is true")
+			}
+		}
+	}
+
+	// Additional frequency-specific validations
+	switch cfg.Scheduling.FrequencyEvery {
+	case "minute":
+		if cfg.Scheduling.FrequencyAmount > 60 {
+			return fmt.Errorf("scheduling.frequency_amount must not exceed 60 for minute frequency")
+		}
+	case "hour":
+		if cfg.Scheduling.FrequencyAmount > 24 {
+			return fmt.Errorf("scheduling.frequency_amount must not exceed 24 for hour frequency")
+		}
+	case "day":
+		if cfg.Scheduling.FrequencyAmount > 31 {
+			return fmt.Errorf("scheduling.frequency_amount must not exceed 31 for day frequency")
+		}
+	case "week":
+		if cfg.Scheduling.FrequencyAmount > 52 {
+			return fmt.Errorf("scheduling.frequency_amount must not exceed 52 for week frequency")
+		}
+	case "month":
+		if cfg.Scheduling.FrequencyAmount > 12 {
+			return fmt.Errorf("scheduling.frequency_amount must not exceed 12 for month frequency")
+		}
 	}
 
 	return nil

@@ -114,4 +114,12 @@ monitoring:
     thresholds:
       error_rate: 0.01
       response_time_ms: 1000
-      disk_usage_percent: 90 
+      disk_usage_percent: 90
+
+scheduling:
+  enabled: true
+  frequency_every: "hour"  # minute, hour, day, week, month
+  frequency_amount: 1
+  start_now: true
+  start_at: ""  # UTC DateTime (2006-01-02T15:04:05Z)
+  stop_at: ""   # UTC DateTime (2006-01-02T15:04:05Z) 

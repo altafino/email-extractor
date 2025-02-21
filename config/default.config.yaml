@@ -142,4 +142,12 @@ monitoring:
       response_time_ms: 1000
       disk_usage_percent: 90
 
+scheduling:
+  enabled: true
+  frequency_every: "minute"
+  frequency_amount: 1
+  start_now: false
+  start_at: "2024-03-15T00:00:00Z"
+  stop_at: "2024-12-31T23:59:59Z"
+
 # ... rest of the configuration remains the same ... 

@@ -61,4 +61,13 @@ type Config struct {
 			Endpoint string `yaml:"endpoint"`
 		} `yaml:"tracing"`
 	} `yaml:"monitoring"`
+
+	Scheduling struct {
+		Enabled         bool   `yaml:"enabled"`
+		FrequencyEvery  string `yaml:"frequency_every"` // minute, hour, day, week, month
+		FrequencyAmount int    `yaml:"frequency_amount"`
+		StartNow        bool   `yaml:"start_now"`
+		StartAt         string `yaml:"start_at"` // UTC DateTime
+		StopAt          string `yaml:"stop_at"`  // UTC DateTime
+	} `yaml:"scheduling"`
 }

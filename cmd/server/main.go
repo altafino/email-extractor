@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/altafino/email-extractor/internal/config"
+	"github.com/altafino/email-extractor/internal/scheduler"
 	"github.com/altafino/email-extractor/internal/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -21,9 +22,11 @@ var (
 	metricsPort int
 	configID    string
 	logger      *slog.Logger
+	sched       *scheduler.Scheduler
 )
 
 func main() {
+	defer cleanup()
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -200,17 +203,44 @@ func startServices(cfg *types.Config) error {
 	// Setup logger for this configuration
 	logger := setupLogger(cfg)
 
+	// Initialize scheduler if not already initialized
+	if sched == nil {
+		sched = scheduler.NewScheduler(logger)
+		sched.Start()
+	}
+
+	// Update scheduler with configuration
+	if err := sched.UpdateJob(cfg); err != nil {
+		logger.Error("failed to update scheduler",
+			"error", err,
+			"id", cfg.Meta.ID,
+		)
+		return err
+	}
+
 	logger.Info("starting service with configuration",
 		"id", cfg.Meta.ID,
 		"name", cfg.Meta.Name,
 		"port", cfg.Server.Port,
 	)
 
-	// TODO: Initialize and start services for this configuration
 	return nil
 }
 
 func updateServices(cfg *types.Config) error {
-	// TODO: Update running services with new configuration
+	// Update scheduler with new configuration
+	if err := sched.UpdateJob(cfg); err != nil {
+		logger.Error("failed to update scheduler",
+			"error", err,
+			"id", cfg.Meta.ID,
+		)
+		return err
+	}
 	return nil
+}
+
+func cleanup() {
+	if sched != nil {
+		sched.Stop()
+	}
 }
