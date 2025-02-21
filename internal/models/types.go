@@ -12,9 +12,11 @@ type EmailConfig struct {
 }
 
 type AttachmentConfig struct {
-	AllowedTypes []string `yaml:"allowed_types"`
-	MaxSize      int64    `yaml:"max_size"` // in bytes
-	StoragePath  string   `yaml:"storage_path"`
+	AllowedTypes      []string `yaml:"allowed_types"`
+	MaxSize           int64    `yaml:"max_size"`
+	StoragePath       string   `yaml:"storage_path"`
+	NamingPattern     string   `yaml:"naming_pattern"`
+	PreserveStructure bool     `yaml:"preserve_structure"`
 }
 
 type EmailFilter struct {

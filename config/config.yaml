@@ -1,10 +1,57 @@
 server:
   port: 8080
   host: "0.0.0.0"
+  read_timeout: 30
+  write_timeout: 30
+  idle_timeout: 60
 
 email:
-  default_timeout: 300
-  rate_limit: 100
+  default_timeout: 300  # seconds
+  rate_limit: 100      # requests per minute
+  max_concurrent: 5    # maximum concurrent downloads
+  protocols:
+    imap:
+      enabled: true
+      default_port: 993  # Default SSL/TLS port
+      insecure_port: 143  # Non-SSL port
+      idle_timeout: 60  # IMAP IDLE timeout
+      batch_size: 100  # Number of emails to fetch per batch
+    pop3:
+      enabled: true
+      default_port: 995  # Default SSL/TLS port
+      insecure_port: 110  # Non-SSL port
+      delete_after_download: false
+  security:
+    tls:
+      enabled: true
+      min_version: "1.2"
+      verify_cert: true
+      cert_file: ""  # Optional client certificate
+      key_file: ""   # Optional client key
+    oauth2:
+      enabled: false
+      providers:
+        google:
+          client_id: ""
+          client_secret: ""
+          redirect_url: "http://localhost:8080/auth/callback"
+          auth_url: "https://accounts.google.com/o/oauth2/auth"
+          token_url: "https://oauth2.googleapis.com/token"
+          scopes:
+            - "https://mail.google.com/"
+        microsoft:
+          client_id: ""
+          client_secret: ""
+          redirect_url: "http://localhost:8080/auth/callback"
+          auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+          token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+          scopes:
+            - "https://outlook.office.com/IMAP.AccessAsUser.All"
+            - "https://outlook.office.com/POP.AccessAsUser.All"
+            - "offline_access"
+  retry:
+    max_attempts: 3
+    delay: 5          # seconds between retries
   attachments:
     allowed_types:
       - ".pdf"
@@ -12,9 +59,16 @@ email:
       - ".xlsx"
       - ".zip"
       - ".jpg"
+      - ".jpeg"
       - ".png"
+      - ".txt"
+      - ".csv"
     max_size: 26214400  # 25MB in bytes
     storage_path: "/data/attachments"
+    naming_pattern: "${date}_${filename}"  # supports variables: date, filename, messageId
+    preserve_structure: true  # maintain folder structure from email
+    scan_nested: true  # scan inside zip files for attachments
+    sanitize_filenames: true # remove potentially dangerous characters
 
 security:
   allowed_ips:
@@ -22,4 +76,31 @@ security:
     - "::1"
   api_keys:
     - "test-key-1"
-    - "test-key-2" 
+    - "test-key-2"
+  cors:
+    enabled: true
+    allowed_origins:
+      - "http://localhost:3000"
+      - "https://yourdomain.com"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "json"
+  output: "stdout"  # stdout, file
+  file_path: "/var/log/email-extractor.log"
+  include_caller: true
+  redact_sensitive: true  # redact passwords and tokens in logs
+
+monitoring:
+  metrics_enabled: true
+  metrics_path: "/metrics"
+  health_check_path: "/health"
+  tracing:
+    enabled: true
+    exporter: "jaeger"
+    endpoint: "http://jaeger:14268/api/traces" 
