@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  email-service:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config
+      - attachment-data:/data/attachments
+    environment:
+      - CONFIG_PATH=/app/config/config.yaml
+      - TZ=UTC
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  attachment-data: 

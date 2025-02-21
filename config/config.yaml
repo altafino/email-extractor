@@ -1,0 +1,25 @@
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+email:
+  default_timeout: 300
+  rate_limit: 100
+  attachments:
+    allowed_types:
+      - ".pdf"
+      - ".docx"
+      - ".xlsx"
+      - ".zip"
+      - ".jpg"
+      - ".png"
+    max_size: 26214400  # 25MB in bytes
+    storage_path: "/data/attachments"
+
+security:
+  allowed_ips:
+    - "127.0.0.1"
+    - "::1"
+  api_keys:
+    - "test-key-1"
+    - "test-key-2" 
