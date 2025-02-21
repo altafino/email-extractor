@@ -7,9 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/altafino/email-extractor/internal/config"
-	"github.com/altafino/email-extractor/internal/scheduler"
-	"github.com/altafino/email-extractor/internal/types"
+	"github.com/altafino/email-extractor/internal/app"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -22,11 +20,9 @@ var (
 	metricsPort int
 	configID    string
 	logger      *slog.Logger
-	sched       *scheduler.Scheduler
 )
 
 func main() {
-	defer cleanup()
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -128,119 +124,23 @@ func setupLogger(cfg *types.Config) *slog.Logger {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	var configs []*types.Config
-
-	if configID != "" {
-		// Use specific configuration
-		cfg, err := config.GetConfig(configID)
-		if err != nil {
-			return fmt.Errorf("failed to get config %s: %w", configID, err)
-		}
-		configs = []*types.Config{cfg}
-	} else {
-		// Use all enabled configurations
-		configs = config.GetEnabledConfigs()
-	}
-
-	// Start configuration watcher
-	watcher, err := config.StartWatcher("./config", logger)
+	// Create and start application
+	app, err := app.New(logger, "./config", configID)
 	if err != nil {
-		return fmt.Errorf("failed to start config watcher: %w", err)
+		return fmt.Errorf("failed to create application: %w", err)
 	}
-	defer watcher.Stop()
+	defer app.Stop()
 
-	// Channel for graceful shutdown
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	// Start services for initial configurations
-	for _, cfg := range configs {
-		if err := startServices(cfg); err != nil {
-			return err
-		}
+	// Start the application
+	if err := app.Start(); err != nil {
+		return fmt.Errorf("failed to start application: %w", err)
 	}
-
-	// Watch for configuration changes
-	go func() {
-		for range watcher.ReloadChan() {
-			logger.Info("reloading services due to configuration change")
-
-			// Get updated configurations
-			var newConfigs []*types.Config
-			if configID != "" {
-				cfg, err := config.GetConfig(configID)
-				if err != nil {
-					logger.Error("failed to get updated config",
-						"id", configID,
-						"error", err,
-					)
-					continue
-				}
-				newConfigs = []*types.Config{cfg}
-			} else {
-				newConfigs = config.GetEnabledConfigs()
-			}
-
-			// Update services with new configurations
-			for _, cfg := range newConfigs {
-				if err := updateServices(cfg); err != nil {
-					logger.Error("failed to update services",
-						"config_id", cfg.Meta.ID,
-						"error", err,
-					)
-				}
-			}
-		}
-	}()
 
 	// Wait for shutdown signal
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
-	logger.Info("shutting down services")
+
+	logger.Info("shutting down application")
 	return nil
-}
-
-func startServices(cfg *types.Config) error {
-	// Setup logger for this configuration
-	logger := setupLogger(cfg)
-
-	// Initialize scheduler if not already initialized
-	if sched == nil {
-		sched = scheduler.NewScheduler(logger)
-		sched.Start()
-	}
-
-	// Update scheduler with configuration
-	if err := sched.UpdateJob(cfg); err != nil {
-		logger.Error("failed to update scheduler",
-			"error", err,
-			"id", cfg.Meta.ID,
-		)
-		return err
-	}
-
-	logger.Info("starting service with configuration",
-		"id", cfg.Meta.ID,
-		"name", cfg.Meta.Name,
-		"port", cfg.Server.Port,
-	)
-
-	return nil
-}
-
-func updateServices(cfg *types.Config) error {
-	// Update scheduler with new configuration
-	if err := sched.UpdateJob(cfg); err != nil {
-		logger.Error("failed to update scheduler",
-			"error", err,
-			"id", cfg.Meta.ID,
-		)
-		return err
-	}
-	return nil
-}
-
-func cleanup() {
-	if sched != nil {
-		sched.Stop()
-	}
 }
