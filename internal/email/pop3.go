@@ -495,6 +495,8 @@ func tryConvertEncoding(content []byte) []byte {
 	for _, enc := range encodings {
 		decoded, err := enc.decoder.Bytes(content)
 		if err != nil {
+			slog.Debug("failed to decode encoding", "encoding", enc.name, "error", err)
+			os.Exit(1)
 			continue
 		}
 
@@ -620,6 +622,23 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 				fmt.Sprintf("Content-Type: multipart/mixed; boundary=%s\r\n\r\n", boundaryToUse))
 			content = append(headers, content...)
 
+			// Fix common Brazilian email client boundary formats
+			content = bytes.ReplaceAll(content,
+				[]byte(`boundary="_000_`),
+				[]byte(`boundary="`))
+			content = bytes.ReplaceAll(content,
+				[]byte(`_LAMP_"`),
+				[]byte(`"`))
+			content = bytes.ReplaceAll(content,
+				[]byte(`boundary="----=_NextPart`),
+				[]byte(`boundary="NextPart`))
+			content = bytes.ReplaceAll(content,
+				[]byte(`boundary="------=_NextPart`),
+				[]byte(`boundary="NextPart`))
+			content = bytes.ReplaceAll(content,
+				[]byte(`boundary="------=_Part`),
+				[]byte(`boundary="Part`))
+
 			// Fix malformed Content-Type headers in the content
 			content = bytes.ReplaceAll(content,
 				[]byte(`boundary=\"`),
@@ -637,6 +656,13 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 				if endIdx != -1 {
 					headerPart := content[idx : idx+endIdx]
 					cleanHeader := bytes.ReplaceAll(headerPart, []byte(`"`), []byte(``))
+					// Remove any remaining special characters
+					cleanHeader = bytes.Map(func(r rune) rune {
+						if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '=' {
+							return r
+						}
+						return -1
+					}, cleanHeader)
 					copy(content[idx:idx+endIdx], cleanHeader)
 				}
 			}
@@ -648,32 +674,81 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 			"message_id", popMsg.ID,
 			"content", string(content[:preview]))
 
-		// Parse directly without cleaning
-		email, err := parsemail.Parse(bytes.NewReader(content))
-		if err != nil {
-			c.logger.Debug("failed to parse email", "error", err, "message_id", popMsg.ID)
-			result.Status = "error"
-			result.ErrorMessage = fmt.Sprintf("failed to parse email: %v", err)
-			results = append(results, result)
-			continue
+		// Extract Content-Type and boundary from headers
+		var attachments []parsemail.Attachment
+		headers, _ := parseHeaders(bytes.NewReader(content))
+		if contentType, ok := headers["Content-Type"]; ok && len(contentType) > 0 {
+			// Clean up Content-Type header
+			cleanContentType := contentType[0]
+			// Remove escaped quotes
+			cleanContentType = strings.ReplaceAll(cleanContentType, `\"`, "")
+			cleanContentType = strings.ReplaceAll(cleanContentType, `\'`, "")
+			// Remove trailing quote if present
+			cleanContentType = strings.TrimSuffix(cleanContentType, `"`)
+			cleanContentType = strings.TrimSuffix(cleanContentType, `'`)
+			cleanContentType = strings.TrimSpace(cleanContentType)
+
+			// Extract boundary from Content-Type
+			mediaType, params, err := mime.ParseMediaType(cleanContentType)
+			if err == nil && strings.HasPrefix(mediaType, "multipart/") {
+				if boundary, ok := params["boundary"]; ok {
+					// Try to find actual boundary marker in content
+					var actualBoundary string
+					scanner := bufio.NewScanner(bytes.NewReader(content))
+					for scanner.Scan() {
+						line := scanner.Text()
+						if strings.HasPrefix(line, "--") {
+							potentialBoundary := strings.TrimPrefix(line, "--")
+							potentialBoundary = strings.TrimSpace(potentialBoundary)
+							if strings.HasSuffix(potentialBoundary, "--") {
+								potentialBoundary = strings.TrimSuffix(potentialBoundary, "--")
+							}
+							// Count occurrences of this boundary
+							if bytes.Count(content, []byte("--"+potentialBoundary)) > 1 {
+								actualBoundary = potentialBoundary
+								break
+							}
+						}
+					}
+
+					// Use actual boundary if found, otherwise use the one from headers
+					if actualBoundary != "" {
+						boundary = actualBoundary
+					}
+
+					// Try our multipart parser with original content
+					attachments, err = c.extractAttachmentsMultipart(content, boundary)
+					if err != nil {
+						c.logger.Debug("failed to extract attachments with multipart parser",
+							"error", err,
+							"message_id", popMsg.ID,
+							"boundary", boundary)
+					}
+				}
+			}
+		}
+
+		// If multipart parsing failed, try parsemail as fallback
+		if len(attachments) == 0 {
+			email, err := parsemail.Parse(bytes.NewReader(content))
+			if err != nil {
+				c.logger.Debug("failed to parse email", "error", err, "message_id", popMsg.ID)
+				result.Status = "error"
+				result.ErrorMessage = fmt.Sprintf("failed to parse email: %v", err)
+				results = append(results, result)
+				continue
+			}
+			attachments = append(attachments, email.Attachments...)
+			for _, ef := range email.EmbeddedFiles {
+				attachments = append(attachments, parsemail.Attachment{
+					Filename: fmt.Sprintf("embedded_%d%s", time.Now().UnixNano(), getExtensionFromContentType(ef.ContentType)),
+					Data:     ef.Data,
+				})
+			}
 		}
 
 		c.logger.Debug("parsed email",
-			"subject", email.Subject,
-			"content_type", email.ContentType,
-			"attachment_count", len(email.Attachments),
-			"embedded_count", len(email.EmbeddedFiles))
-
-		// Combine all attachments
-		var attachments []parsemail.Attachment
-		attachments = append(attachments, email.Attachments...)
-		// Convert EmbeddedFiles to Attachments
-		for _, ef := range email.EmbeddedFiles {
-			attachments = append(attachments, parsemail.Attachment{
-				Filename: fmt.Sprintf("embedded_%d%s", time.Now().UnixNano(), getExtensionFromContentType(ef.ContentType)),
-				Data:     ef.Data,
-			})
-		}
+			"attachment_count", len(attachments))
 
 		// Process attachments
 		for _, a := range attachments {
