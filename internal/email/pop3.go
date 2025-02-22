@@ -698,14 +698,29 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 				c.logger.Debug("failed to parse media type",
 					"message_id", popMsg.ID,
 					"error", err,
-					"content_type", cleanContentType)
+					"raw_content_type", contentType[0],
+					"clean_content_type", cleanContentType)
+
+				// Try to clean up Content-Type more aggressively for parsing
+				cleanContentType = strings.ReplaceAll(cleanContentType, `"`, "")
+				cleanContentType = strings.ReplaceAll(cleanContentType, `'`, "")
+				cleanContentType = strings.TrimSpace(cleanContentType)
+				// Try parsing again with cleaned content type
+				mediaType, params, err = mime.ParseMediaType(cleanContentType)
+				if err == nil {
+					c.logger.Debug("successfully parsed media type after cleanup",
+						"message_id", popMsg.ID,
+						"clean_content_type", cleanContentType)
+				}
 			}
 
 			if err == nil && strings.HasPrefix(mediaType, "multipart/") {
 				if boundary, ok := params["boundary"]; ok {
 					c.logger.Debug("found boundary in headers",
 						"message_id", popMsg.ID,
-						"boundary", boundary)
+						"boundary", boundary,
+						"media_type", mediaType,
+						"all_params", params)
 
 					// Try to find actual boundary marker in content
 					var actualBoundary string
