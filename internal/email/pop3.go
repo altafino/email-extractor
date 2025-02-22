@@ -680,35 +680,91 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		if contentType, ok := headers["Content-Type"]; ok && len(contentType) > 0 {
 			// Clean up Content-Type header
 			cleanContentType := contentType[0]
-			// Remove escaped quotes
-			cleanContentType = strings.ReplaceAll(cleanContentType, `\"`, "")
-			cleanContentType = strings.ReplaceAll(cleanContentType, `\'`, "")
-			// Remove trailing quote if present
-			cleanContentType = strings.TrimSuffix(cleanContentType, `"`)
-			cleanContentType = strings.TrimSuffix(cleanContentType, `'`)
-			cleanContentType = strings.TrimSpace(cleanContentType)
+			// Log raw message preview for debugging
+			previewLen := min(200, len(content))
+			c.logger.Debug("raw message preview",
+				"message_id", popMsg.ID,
+				"preview", string(content[:previewLen]),
+				"total_length", len(content))
+
+			c.logger.Debug("processing email content type",
+				"message_id", popMsg.ID,
+				"raw_content_type", contentType[0],
+				"clean_content_type", cleanContentType)
 
 			// Extract boundary from Content-Type
 			mediaType, params, err := mime.ParseMediaType(cleanContentType)
+			if err != nil {
+				c.logger.Debug("failed to parse media type",
+					"message_id", popMsg.ID,
+					"error", err,
+					"content_type", cleanContentType)
+			}
+
 			if err == nil && strings.HasPrefix(mediaType, "multipart/") {
 				if boundary, ok := params["boundary"]; ok {
+					c.logger.Debug("found boundary in headers",
+						"message_id", popMsg.ID,
+						"boundary", boundary)
+
 					// Try to find actual boundary marker in content
 					var actualBoundary string
 					scanner := bufio.NewScanner(bytes.NewReader(content))
+					// Increase scanner buffer for large HTML content
+					buf := make([]byte, 0, 64*1024) // 64KB buffer
+					scanner.Buffer(buf, 1024*1024)  // Allow up to 1MB per line
+
+					var foundBoundaries []string
+					var allLines []string // Store all lines for debugging
 					for scanner.Scan() {
 						line := scanner.Text()
+						allLines = append(allLines, line)
 						if strings.HasPrefix(line, "--") {
 							potentialBoundary := strings.TrimPrefix(line, "--")
 							potentialBoundary = strings.TrimSpace(potentialBoundary)
 							if strings.HasSuffix(potentialBoundary, "--") {
 								potentialBoundary = strings.TrimSuffix(potentialBoundary, "--")
 							}
+							foundBoundaries = append(foundBoundaries, potentialBoundary)
+							c.logger.Debug("found potential boundary",
+								"message_id", popMsg.ID,
+								"boundary", potentialBoundary,
+								"line", line)
+
 							// Count occurrences of this boundary
 							if bytes.Count(content, []byte("--"+potentialBoundary)) > 1 {
 								actualBoundary = potentialBoundary
 								break
 							}
 						}
+					}
+					// Check for scanner errors
+					if err := scanner.Err(); err != nil {
+						c.logger.Debug("scanner error",
+							"message_id", popMsg.ID,
+							"error", err)
+					}
+
+					c.logger.Debug("boundary search results",
+						"message_id", popMsg.ID,
+						"header_boundary", boundary,
+						"found_boundaries", foundBoundaries,
+						"content_lines", allLines[:min(10, len(allLines))], // Show first 10 lines
+						"actual_boundary", actualBoundary)
+
+					// Check if this is a delivery status notification (DSN)
+					isDSN := false
+					for _, line := range allLines {
+						if strings.HasPrefix(line, "Reporting-MTA:") {
+							isDSN = true
+							break
+						}
+					}
+
+					if isDSN {
+						c.logger.Debug("skipping DSN message",
+							"message_id", popMsg.ID)
+						continue
 					}
 
 					// Use actual boundary if found, otherwise use the one from headers
@@ -717,12 +773,34 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 					}
 
 					// Try our multipart parser with original content
+					// Log first 100 bytes around each boundary marker
+					boundaryMarker := []byte("--" + boundary)
+					idx := bytes.Index(content, boundaryMarker)
+					if idx != -1 {
+						start := max(0, idx-50)
+						end := min(len(content), idx+len(boundaryMarker)+50)
+						c.logger.Debug("boundary context",
+							"message_id", popMsg.ID,
+							"boundary", boundary,
+							"context", string(content[start:end]))
+					}
+					// Also check for boundary with CRLF
+					crlfBoundaryMarker := []byte("\r\n--" + boundary)
+					if bytes.Contains(content, crlfBoundaryMarker) {
+						c.logger.Debug("found boundary with CRLF",
+							"message_id", popMsg.ID,
+							"boundary", boundary)
+					}
+
 					attachments, err = c.extractAttachmentsMultipart(content, boundary)
 					if err != nil {
 						c.logger.Debug("failed to extract attachments with multipart parser",
 							"error", err,
 							"message_id", popMsg.ID,
-							"boundary", boundary)
+							"boundary", boundary,
+							"content_length", len(content),
+							"boundary_count", bytes.Count(content, boundaryMarker),
+							"crlf_boundary_count", bytes.Count(content, crlfBoundaryMarker))
 					}
 				}
 			}
