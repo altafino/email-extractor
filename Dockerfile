@@ -28,7 +28,7 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY --from=builder /app/email-service .
 
 # Copy config directory
-COPY config /app/config
+RUN mkdir -p /app/config/templates
 
 # Create directories for logs and attachments
 RUN mkdir -p /data/attachments /var/log

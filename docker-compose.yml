@@ -1,6 +1,7 @@
 services:
   email-service:
     image: altafino/email-extractor:latest
+    command: sh -c "ls -la /app/config && ls -la /app/config/templates && /app/email-service"
     ports:
       - "9999:8080"
     volumes:
@@ -9,8 +10,8 @@ services:
     environment:
       - CONFIG_PATH=/app/config/default.config.yaml
       - TZ=UTC
-    # env_file:
-    #   - .env
+      - DEBUG=true
+      - LOG_LEVEL=debug
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:8080/health"]
