@@ -5,27 +5,19 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"github.com/DusanKasan/parsemail"
+	"github.com/altafino/email-extractor/internal/models"
+	"github.com/altafino/email-extractor/internal/types"
+	"github.com/knadh/go-pop3"
 	"io"
 	"log/slog"
 	"mime"
 	"mime/quotedprintable"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
-
-	"golang.org/x/text/encoding"
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/encoding/unicode"
-	"golang.org/x/text/transform"
-
-	"github.com/DusanKasan/parsemail"
-	"github.com/altafino/email-extractor/internal/models"
-	"github.com/altafino/email-extractor/internal/types"
-	"github.com/knadh/go-pop3"
 )
 
 type POP3Client struct {
@@ -100,21 +92,6 @@ func (c *POP3Client) Connect(emailCfg models.EmailConfig) (*pop3.Conn, error) {
 	return conn, nil
 }
 
-func decodeReader(r io.Reader, charset string) io.Reader {
-	switch strings.ToLower(charset) {
-	case "iso-8859-1", "latin1":
-		return transform.NewReader(r, charmap.ISO8859_1.NewDecoder())
-	case "windows-1252":
-		return transform.NewReader(r, charmap.Windows1252.NewDecoder())
-	case "utf-16le":
-		return transform.NewReader(r, unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder())
-	case "utf-16be":
-		return transform.NewReader(r, unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM).NewDecoder())
-	default:
-		return r
-	}
-}
-
 func decodeContent(content []byte, encoding string) ([]byte, error) {
 	switch strings.ToLower(encoding) {
 	case "base64":
@@ -146,29 +123,6 @@ func decodeFilename(filename string) string {
 		return filename
 	}
 	return decoded
-}
-
-// cleanBoundary removes quotes, trailing spaces, and other unwanted characters from boundaries
-func cleanBoundary(boundary string) string {
-	// Remove quotes and spaces
-	boundary = strings.Trim(boundary, `"' `)
-	// Remove trailing backslashes or dashes
-	boundary = strings.TrimRight(boundary, `\-`)
-	boundary = strings.TrimSpace(boundary)
-	return boundary
-}
-
-// deduplicateBoundaries removes duplicate boundaries from the slice
-func deduplicateBoundaries(boundaries []string) []string {
-	seen := make(map[string]bool)
-	result := make([]string, 0, len(boundaries))
-	for _, b := range boundaries {
-		if !seen[b] {
-			seen[b] = true
-			result = append(result, b)
-		}
-	}
-	return result
 }
 
 func (c *POP3Client) extractAttachmentsMultipart(content []byte, boundary string) ([]parsemail.Attachment, error) {
@@ -320,38 +274,6 @@ func (c *POP3Client) extractAttachmentsMultipart(content []byte, boundary string
 	return handleMultipart(content, boundary)
 }
 
-func decodeRFC2231Filename(encoded string) (string, error) {
-	parts := strings.Split(encoded, "'")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid RFC 2231 encoded filename: %s", encoded)
-	}
-	charset := strings.ToLower(parts[0])
-	//lang := parts[1] // Language is not used in this example, but you might need it
-	encodedValue := parts[2]
-
-	// URL-decode the value
-	decodedValue, err := url.QueryUnescape(encodedValue)
-	if err != nil {
-		return "", fmt.Errorf("failed to URL-decode RFC 2231 filename: %w", err)
-	}
-
-	// Decode based on charset
-	switch charset {
-	case "utf-8":
-		return decodedValue, nil // Already UTF-8
-	case "iso-8859-1":
-		r := transform.NewReader(strings.NewReader(decodedValue), charmap.ISO8859_1.NewDecoder())
-		result, err := io.ReadAll(r)
-		if err != nil {
-			return "", fmt.Errorf("failed to decode ISO-8859-1 RFC 2231 filename: %w", err)
-		}
-		return string(result), nil
-	default:
-		// Unsupported charset
-		return "", fmt.Errorf("unsupported charset in RFC 2231 filename: %s", charset)
-	}
-}
-
 func parseHeaders(r io.Reader) (map[string][]string, error) {
 	headers := make(map[string][]string)
 	scanner := bufio.NewScanner(r)
@@ -380,139 +302,6 @@ func parseHeaders(r io.Reader) (map[string][]string, error) {
 	}
 
 	return headers, scanner.Err()
-}
-
-// cleanMessageContent removes any preamble text and ensures the message starts with headers
-func cleanMessageContent(content []byte) []byte {
-	// Try to detect and convert common Brazilian Portuguese encodings
-	detectedContent := tryConvertEncoding(content)
-
-	// Split into lines for processing
-	lines := bytes.Split(detectedContent, []byte("\n"))
-	var headers [][]byte
-	var body [][]byte
-	var inHeaders = true
-	var hasSeenBlankLine = false
-
-	for _, line := range lines {
-		trimmedLine := bytes.TrimSpace(line)
-
-		// Check for header end
-		if len(trimmedLine) == 0 {
-			if inHeaders {
-				hasSeenBlankLine = true
-				inHeaders = false
-			}
-			continue
-		}
-
-		// If we see a line starting with Content-Type: after headers, it might be a boundary
-		if hasSeenBlankLine && bytes.HasPrefix(trimmedLine, []byte("Content-Type:")) {
-			inHeaders = true
-			hasSeenBlankLine = false
-		}
-
-		// Skip HTML content in headers
-		if inHeaders && (bytes.HasPrefix(trimmedLine, []byte("<")) ||
-			bytes.HasPrefix(trimmedLine, []byte("--")) ||
-			bytes.Contains(trimmedLine, []byte("</")) ||
-			bytes.Contains(trimmedLine, []byte("/>")) ||
-			!bytes.Contains(trimmedLine, []byte(":"))) {
-			inHeaders = false
-			body = append(body, line)
-			continue
-		}
-
-		if inHeaders {
-			headers = append(headers, line)
-		} else {
-			body = append(body, line)
-		}
-	}
-
-	// Ensure we have basic headers
-	hasContentType := false
-	hasMimeVersion := false
-	hasFrom := false
-	hasTo := false
-
-	for _, header := range headers {
-		headerLower := bytes.ToLower(header)
-		if bytes.HasPrefix(headerLower, []byte("content-type:")) {
-			hasContentType = true
-		} else if bytes.HasPrefix(headerLower, []byte("mime-version:")) {
-			hasMimeVersion = true
-		} else if bytes.HasPrefix(headerLower, []byte("from:")) {
-			hasFrom = true
-		} else if bytes.HasPrefix(headerLower, []byte("to:")) {
-			hasTo = true
-		}
-	}
-
-	// Add missing headers
-	if !hasMimeVersion {
-		headers = append([][]byte{[]byte("MIME-Version: 1.0")}, headers...)
-	}
-	if !hasFrom {
-		headers = append([][]byte{[]byte("From: unknown@example.com")}, headers...)
-	}
-	if !hasTo {
-		headers = append([][]byte{[]byte("To: unknown@example.com")}, headers...)
-	}
-
-	if !hasContentType {
-		boundary := fmt.Sprintf("_%x", time.Now().UnixNano())
-		headers = append(headers, []byte(fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"", boundary)))
-		// Wrap the body in multipart boundaries
-		body = append([][]byte{
-			[]byte(""),
-			[]byte(fmt.Sprintf("--%s", boundary)),
-			[]byte("Content-Type: text/plain; charset=UTF-8"),
-			[]byte(""),
-		}, body...)
-		body = append(body, []byte(""), []byte(fmt.Sprintf("--%s--", boundary)))
-	}
-
-	// Join everything back together
-	allParts := append(append(headers, []byte("")), body...)
-	return bytes.Join(allParts, []byte("\n"))
-}
-
-func tryConvertEncoding(content []byte) []byte {
-	// Try common encodings used in Brazilian Portuguese emails
-	encodings := []struct {
-		name    string
-		decoder *encoding.Decoder
-	}{
-		{"ISO-8859-1", charmap.ISO8859_1.NewDecoder()},
-		{"Windows-1252", charmap.Windows1252.NewDecoder()},
-		{"CP1252", charmap.Windows1252.NewDecoder()},
-		{"ISO-8859-15", charmap.ISO8859_15.NewDecoder()},
-	}
-
-	// First, check if it's already valid UTF-8
-	if utf8.Valid(content) {
-		return content
-	}
-
-	// Try each encoding
-	for _, enc := range encodings {
-		decoded, err := enc.decoder.Bytes(content)
-		if err != nil {
-			slog.Debug("failed to decode encoding", "encoding", enc.name, "error", err)
-			os.Exit(1)
-			continue
-		}
-
-		// If the decoded content is valid UTF-8 and contains common Portuguese characters
-		if utf8.Valid(decoded) && (bytes.Contains(decoded, []byte("ção")) ||
-			bytes.Contains(decoded, []byte("á")) ||
-			bytes.Contains(decoded, []byte("é")) ||
-			bytes.Contains(decoded, []byte("ã"))) {
-			return decoded
-		}
-	}
-	return content
 }
 
 func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
@@ -1092,14 +881,6 @@ func (c *POP3Client) checkResponse(response string, context string) error {
 		return fmt.Errorf("%s failed: %s", context, response)
 	}
 	return nil
-}
-
-func getAttachmentNames(attachments []parsemail.Attachment) []string {
-	names := make([]string, len(attachments))
-	for i, a := range attachments {
-		names[i] = a.Filename
-	}
-	return names
 }
 
 func (c *POP3Client) extractAttachments(msgBody io.Reader) ([]parsemail.Attachment, error) {
