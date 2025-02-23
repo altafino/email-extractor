@@ -27,9 +27,9 @@ email:
       enabled: true
       default_port: 995
       insecure_port: 110
-      server: "email-ssl.com.br"  # Example for Gmail POP3
-      username: "ah@ecogotas.com.br" #"${POP3_USERNAME}"  # Will be replaced with environment variable
-      password: "H4ld3m4nn76@!" #"${POP3_PASSWORD}"  # Will be replaced with environment variable
+      server: "${POP3_SERVER}"
+      username: "${POP3_USERNAME}"
+      password: "${POP3_PASSWORD}"
       delete_after_download: false
   security:
     tls:
@@ -83,7 +83,7 @@ email:
       - ".7z"
       - ".rtf"
     max_size: 104857600  # 100MB in bytes
-    storage_path: "/home/stefan/data/attachments"
+    storage_path: "${ATTACHMENT_STORAGE_PATH}"
     naming_pattern: "${unixtime}_${filename}"
     preserve_structure: true
     scan_nested: true
@@ -121,7 +121,7 @@ logging:
   level: "debug"  # debug, info, warn, error
   format: "json" # json, text
   output: "stdout"  # stdout, file
-  file_path: "/var/log/email-extractor.log"
+  file_path: "${LOG_FILE_PATH}"
   include_caller: true
   redact_sensitive: true
   rotation:
@@ -138,7 +138,7 @@ monitoring:
   tracing:
     enabled: true
     exporter: "jaeger"
-    endpoint: "http://jaeger:14268/api/traces"
+    endpoint: "${JAEGER_ENDPOINT}"
     sample_rate: 0.1
   profiling:
     enabled: true
@@ -147,7 +147,7 @@ monitoring:
     enabled: true
     endpoints:
       - type: "email"
-        address: "alerts@example.com"
+        address: "${ALERT_EMAIL}"
     thresholds:
       error_rate: 0.01
       response_time_ms: 1000

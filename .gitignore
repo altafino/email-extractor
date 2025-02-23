@@ -23,6 +23,9 @@ go.work.sum
 
 # env file
 .env
+*.env
+!.env.example
 
 # config file
 config.yaml
+config/default.config.yaml

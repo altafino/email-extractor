@@ -11,6 +11,8 @@ services:
     environment:
       - CONFIG_PATH=/app/config/config.yaml
       - TZ=UTC
+    env_file:
+      - .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:8080/health"]
@@ -19,4 +21,5 @@ services:
       retries: 3
 
 volumes:
-  attachment-data: 
+  attachment-data:
+   

@@ -30,8 +30,11 @@ COPY --from=builder /app/email-service .
 # Copy config directory
 COPY config /app/config
 
-# Create volume for attachments
-VOLUME ["/data/attachments"]
+# Create directories for logs and attachments
+RUN mkdir -p /data/attachments /var/log
+
+# Create volume for attachments and logs
+VOLUME ["/data/attachments", "/var/log"]
 
 # Expose the application port
 EXPOSE 8080
