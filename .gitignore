@@ -27,5 +27,6 @@ go.work.sum
 !.env.example
 
 # config file
-config.yaml
-config/default.config.yaml
+config/*.config.yaml
+config/*.yaml
+!config/*.template.yaml

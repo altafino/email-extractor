@@ -1,17 +1,27 @@
 services:
   email-service:
     image: altafino/email-extractor:latest
-    command: sh -c "ls -la /app/config && ls -la /app/config/templates && /app/email-service"
     ports:
       - "9999:8080"
     volumes:
-      - ./config:/app/config
+      - type: bind
+        source: /opt/email-extractor/config/templates/base.yaml
+        target: /app/config/templates/base.yaml
+        read_only: true
+      - type: bind
+        source: /opt/email-extractor/config/account1.config.yaml
+        target: /app/config/account1.config.yaml
+        read_only: true
+      - type: bind
+        source: /opt/email-extractor/config/account2.config.yaml
+        target: /app/config/account2.config.yaml
+        read_only: true
       - attachment-data:/data/attachments
     environment:
-      - CONFIG_PATH=/app/config/default.config.yaml
       - TZ=UTC
       - DEBUG=true
       - LOG_LEVEL=debug
+      - CONFIG_FILES=account1.config.yaml,account2.config.yaml
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:8080/health"]
