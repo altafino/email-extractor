@@ -28,8 +28,8 @@ email:
       default_port: 995
       insecure_port: 110
       server: "email-ssl.com.br"  # Example for Gmail POP3
-      username: "ah@ecogotas.com.br" #"${POP3_USERNAME}"  # Will be replaced with environment variable
-      password: "H4ld3m4nn76@!" #"${POP3_PASSWORD}"  # Will be replaced with environment variable
+      username: "test@test.com" #"${POP3_USERNAME}"  # Will be replaced with environment variable
+      password: "test" #"${POP3_PASSWORD}"  # Will be replaced with environment variable
       delete_after_download: false
   security:
     tls:
