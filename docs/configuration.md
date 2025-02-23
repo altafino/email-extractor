@@ -5,26 +5,40 @@ The email-extractor service supports multiple email accounts through separate co
 
 ## Setup Steps
 
-1. Create your configuration files:
+1. Create the directory structure on the host:
+   ```bash
+   # Create required directories
+   mkdir -p /opt/email-extractor/config/templates
+   mkdir -p /opt/email-extractor/data/attachments
+   
+   # Set proper permissions
+   chmod 755 /opt/email-extractor/data/attachments
+   ```
+
+2. Create your configuration files:
    - Copy `config/default.config.yaml.template` to create new config files
    - Create one file per email account (e.g., `account1.config.yaml`, `account2.config.yaml`)
    - Place them in the `config/` directory
+   ```bash
+   # Copy template files
+   cp base.yaml /opt/email-extractor/config/templates/
+   cp default.config.yaml.template /opt/email-extractor/config/default.config.yaml
+   ```
 
-2. Update docker-compose.yml:
-   - Mount the base template and account configuration files
-   - Set CONFIG_FILES environment variable to list your config files
-   - Each config file is mounted read-only for security
+3. Configure your settings:
+   - Edit `/opt/email-extractor/config/default.config.yaml` with your email settings
+   - The base template in `/opt/email-extractor/config/templates/base.yaml` contains common settings
+   - Make sure storage paths point to `/data/attachments` inside the container
 
 ## Example Structure 
 ```
-config/
-├── templates/
-│   └── base.yaml              # Base template with common settings
-├── account1.config.yaml       # First email account configuration
-└── account2.config.yaml       # Second email account configuration
-
-docker-compose.yml             # Service configuration
-.env                          # Environment variables
+/opt/email-extractor/
+├── config/
+│   ├── templates/
+│   │   └── base.yaml              # Base template with common settings
+│   └── default.config.yaml        # Main configuration file
+└── data/
+    └── attachments/               # Where email attachments are stored
 ```
 
 ### Configuration Files
@@ -36,52 +50,67 @@ docker-compose.yml             # Service configuration
      name: "Base Template"
      template: ""
      enabled: true
-   # ... common settings ...
+   email:
+     attachments:
+       storage_path: "/data/attachments"  # Fixed path inside container
+       allowed_types:
+         - ".pdf"
+         - ".xml"
+         # ... other types ...
    ```
 
-2. **account1.config.yaml**: First account configuration
+2. **default.config.yaml**: Main configuration
    ```yaml
    meta:
-     id: "account1"
-     name: "First Account"
+     id: "default"
+     name: "Default Account"
      template: "base"
      enabled: true
    email:
      protocols:
        pop3:
          enabled: true
-         server: "${POP3_SERVER_1}"
-         username: "${POP3_USERNAME_1}"
-         password: "${POP3_PASSWORD_1}"
+         server: "${POP3_SERVER}"
+         username: "${POP3_USERNAME}"
+         password: "${POP3_PASSWORD}"
    ```
 
-3. **account2.config.yaml**: Second account configuration
-   ```yaml
-   meta:
-     id: "account2"
-     name: "Second Account"
-     template: "base"
-     enabled: true
-   email:
-     protocols:
-       pop3:
-         enabled: true
-         server: "${POP3_SERVER_2}"
-         username: "${POP3_USERNAME_2}"
-         password: "${POP3_PASSWORD_2}"
-   ```
-
-4. **Environment Variables (.env)**
+3. **Environment Variables (.env)**
    ```env
-   # First account
-   POP3_SERVER_1=mail1.example.com
-   POP3_USERNAME_1=user1@example.com
-   POP3_PASSWORD_1=secure_password_1
+   # Email settings
+   POP3_SERVER=mail.example.com
+   POP3_USERNAME=user@example.com
+   POP3_PASSWORD=secure_password
    
-   # Second account
-   POP3_SERVER_2=mail2.example.com
-   POP3_USERNAME_2=user2@example.com
-   POP3_PASSWORD_2=secure_password_2
-   
-   ATTACHMENT_STORAGE_PATH=/data/attachments
-   ``` 
+   # Optional monitoring settings
+   ALERT_EMAIL=alerts@example.com
+   JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+   ```
+
+## Docker Compose Configuration
+```yaml
+services:
+  email-service:
+    volumes:
+      - type: bind
+        source: /opt/email-extractor/config/templates/base.yaml
+        target: /app/config/templates/base.yaml
+        read_only: true
+      - type: bind
+        source: /opt/email-extractor/config/default.config.yaml
+        target: /app/config/default.config.yaml
+        read_only: true
+      - type: bind
+        source: /opt/email-extractor/data/attachments
+        target: /data/attachments
+    environment:
+      - CONFIG_FILES=default.config.yaml
+      - ATTACHMENT_STORAGE_PATH=/data/attachments
+```
+
+## Important Notes
+- All paths in configuration files should use `/data/attachments` (container path)
+- Host storage is in `/opt/email-extractor/data/attachments`
+- Configuration files are mounted read-only for security
+- Attachments directory needs proper permissions (755)
+- The service automatically creates date-based subdirectories for attachments 
