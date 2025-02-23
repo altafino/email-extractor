@@ -1046,7 +1046,6 @@ func (c *POP3Client) sanitizeFilename(filename string) string {
 }
 
 func (c *POP3Client) generateFilename(originalName string, downloadTime time.Time) string {
-	// Get pattern from config and verify it's not empty
 	pattern := c.cfg.Email.Attachments.NamingPattern
 
 	// Add detailed config logging
@@ -1064,8 +1063,8 @@ func (c *POP3Client) generateFilename(originalName string, downloadTime time.Tim
 	ext := filepath.Ext(originalName)
 	baseFilename := strings.TrimSuffix(originalName, ext)
 
-	// Create the timestamp part
-	timestamp := fmt.Sprintf("%d", downloadTime.Unix())
+	// Create the timestamp part using nanoseconds
+	timestamp := fmt.Sprintf("%d", downloadTime.UnixNano())
 
 	// Replace pattern variables
 	result := pattern
