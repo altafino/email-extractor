@@ -82,7 +82,7 @@ email:
       - ".rar"
       - ".7z"
       - ".rtf"
-    max_size: 26214400  # 25MB in bytes
+    max_size: 104857600  # 100MB in bytes
     storage_path: "/home/stefan/data/attachments"
     naming_pattern: "${filename}"
     preserve_structure: true
