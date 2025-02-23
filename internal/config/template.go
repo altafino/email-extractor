@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,32 +63,55 @@ func loadTemplate(path string) (*types.Config, error) {
 		return nil, err
 	}
 
+	// Ensure template has correct naming pattern
+	if template.Email.Attachments.NamingPattern == "" || template.Email.Attachments.NamingPattern == "_" {
+		template.Email.Attachments.NamingPattern = "${unixtime}_${filename}"
+		logger.Debug("set default naming pattern in template",
+			"template_path", path,
+			"pattern", template.Email.Attachments.NamingPattern)
+	}
+
 	return template, nil
 }
 
 // ApplyTemplate merges a template with a configuration
 func ApplyTemplate(cfg *types.Config, templateName string) error {
-	if globalTemplates == nil {
-		return fmt.Errorf("templates not initialized")
+	if logger == nil {
+		logger = slog.Default()
 	}
+
+	logger.Debug("applying template",
+		"template_name", templateName,
+		"before_pattern", cfg.Email.Attachments.NamingPattern)
 
 	template, exists := globalTemplates.templates[templateName]
 	if !exists {
 		return fmt.Errorf("template %s not found", templateName)
 	}
 
-	// Create a copy of the template
-	base := &types.Config{}
-	if err := mergo.Merge(base, template); err != nil {
-		return fmt.Errorf("failed to copy template: %w", err)
+	logger.Debug("template content",
+		"template_name", templateName,
+		"template_pattern", template.Email.Attachments.NamingPattern)
+
+	// Create a copy of the config
+	merged := &types.Config{}
+
+	// First, copy the config
+	if err := mergo.Merge(merged, cfg); err != nil {
+		return fmt.Errorf("failed to copy config: %w", err)
 	}
 
-	// Merge configuration over template
-	if err := mergo.Merge(base, cfg, mergo.WithOverride); err != nil {
-		return fmt.Errorf("failed to merge config with template: %w", err)
+	// Then merge the template over it, but only for zero/empty values
+	if err := mergo.Merge(merged, template, mergo.WithOverrideEmptySlice); err != nil {
+		return fmt.Errorf("failed to merge template: %w", err)
 	}
 
 	// Copy merged result back to original config
-	*cfg = *base
+	*cfg = *merged
+
+	logger.Debug("after template merge",
+		"final_pattern", cfg.Email.Attachments.NamingPattern,
+		"full_attachments_config", cfg.Email.Attachments)
+
 	return nil
 }

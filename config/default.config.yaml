@@ -84,7 +84,7 @@ email:
       - ".rtf"
     max_size: 104857600  # 100MB in bytes
     storage_path: "/home/stefan/data/attachments"
-    naming_pattern: "${filename}"
+    naming_pattern: "${unixtime}_${filename}"
     preserve_structure: true
     scan_nested: true
     sanitize_filenames: true

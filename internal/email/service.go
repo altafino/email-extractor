@@ -15,6 +15,11 @@ type Service struct {
 }
 
 func NewService(cfg *types.Config, logger *slog.Logger) *Service {
+	// Add debug logging for config
+	logger.Debug("creating email service",
+		"config_id", cfg.Meta.ID,
+		"attachment_config", cfg.Email.Attachments)
+
 	return &Service{
 		cfg:    cfg,
 		logger: logger,
@@ -22,6 +27,10 @@ func NewService(cfg *types.Config, logger *slog.Logger) *Service {
 }
 
 func (s *Service) ProcessEmails() error {
+	// Add debug logging at the start
+	s.logger.Debug("processing emails with config",
+		"attachment_naming_pattern", s.cfg.Email.Attachments.NamingPattern)
+
 	// Check if POP3 is enabled
 	if !s.cfg.Email.Protocols.POP3.Enabled {
 		s.logger.Info("POP3 protocol is disabled, skipping email processing",

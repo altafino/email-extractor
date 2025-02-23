@@ -59,7 +59,7 @@ email:
       - ".txt"
       - ".csv"
     max_size: 26214400  # 25MB in bytes
-    naming_pattern: "${date}_${filename}"
+    naming_pattern: "${unixtime}_${filename}"
     preserve_structure: true
     scan_nested: true
     sanitize_filenames: true

@@ -19,6 +19,7 @@ type AttachmentConfig struct {
 	NamingPattern     string   `yaml:"naming_pattern"`
 	PreserveStructure bool     `yaml:"preserve_structure"`
 	SanitizeFilenames bool     `yaml:"sanitize_filenames"`
+	HandleDuplicates  string   `yaml:"handle_duplicates,omitempty"`
 }
 
 type EmailFilter struct {

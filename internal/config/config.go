@@ -101,6 +101,11 @@ func loadSingleConfig(path string) (*types.Config, error) {
 		return nil, err
 	}
 
+	// Log raw config data
+	logger.Debug("raw config data before template",
+		"path", path,
+		"content", string(data))
+
 	// Expand environment variables in the config file
 	expandedData := os.ExpandEnv(string(data))
 
@@ -108,6 +113,22 @@ func loadSingleConfig(path string) (*types.Config, error) {
 	if err := yaml.Unmarshal([]byte(expandedData), config); err != nil {
 		return nil, err
 	}
+
+	// Set default naming pattern if not specified
+	if config.Email.Attachments.NamingPattern == "" || config.Email.Attachments.NamingPattern == "_" {
+		config.Email.Attachments.NamingPattern = "${unixtime}_${filename}"
+		logger.Debug("set default naming pattern",
+			"pattern", config.Email.Attachments.NamingPattern)
+	}
+
+	logger.Debug("config after initial load",
+		"meta_template", config.Meta.Template,
+		"naming_pattern", config.Email.Attachments.NamingPattern)
+
+	// Add detailed debug logging for attachment config
+	logger.Debug("loaded attachment configuration",
+		"raw_naming_pattern", config.Email.Attachments.NamingPattern,
+		"full_config", fmt.Sprintf("%+v", config.Email.Attachments))
 
 	// Log the POP3 configuration after environment variable expansion
 	if config.Email.Protocols.POP3.Enabled {

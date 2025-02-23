@@ -299,7 +299,11 @@ func (c *POP3Client) extractAttachmentsMultipart(content []byte, boundary string
 						if mimeExt, ok := mimeToExt[mediaType]; ok {
 							ext = mimeExt
 						}
-						filename = fmt.Sprintf("attachment_%d%s", time.Now().UnixNano(), ext)
+						// Just use a simple base name for attachments without names
+						filename = fmt.Sprintf("attachment%s", ext)
+					} else {
+						// For existing filenames, just trim spaces
+						filename = strings.TrimSpace(filename)
 					}
 
 					nestedAttachments = append(nestedAttachments, parsemail.Attachment{
@@ -926,6 +930,14 @@ func (c *POP3Client) saveAttachment(filename string, content []byte) error {
 		return fmt.Errorf("attachment size %d exceeds maximum allowed size %d", len(content), c.cfg.Email.Attachments.MaxSize)
 	}
 
+	// First sanitize if configured (before pattern application)
+	if c.cfg.Email.Attachments.SanitizeFilenames {
+		filename = c.sanitizeFilename(filename)
+	}
+
+	// Apply the naming pattern
+	filename = c.generateFilename(filename, time.Now().UTC())
+
 	// Ensure filename has correct extension
 	ext := strings.ToLower(filepath.Ext(filename))
 	baseFilename := strings.TrimSuffix(filename, ext)
@@ -952,8 +964,6 @@ func (c *POP3Client) saveAttachment(filename string, content []byte) error {
 	if err := os.MkdirAll(c.cfg.Email.Attachments.StoragePath, 0755); err != nil {
 		return fmt.Errorf("failed to create storage directory: %w", err)
 	}
-
-	filename = c.generateFilename(filename, time.Now().UTC())
 
 	var finalPath string
 	if c.cfg.Email.Attachments.PreserveStructure {
@@ -1036,20 +1046,42 @@ func (c *POP3Client) sanitizeFilename(filename string) string {
 }
 
 func (c *POP3Client) generateFilename(originalName string, downloadTime time.Time) string {
+	// Get pattern from config and verify it's not empty
 	pattern := c.cfg.Email.Attachments.NamingPattern
+
+	// Add detailed config logging
+	c.logger.Debug("checking naming pattern config",
+		"raw_pattern", pattern,
+		"config_attachments", c.cfg.Email.Attachments)
+
+	if pattern == "" {
+		// Use default pattern if none specified
+		pattern = "${unixtime}_${filename}"
+		c.logger.Debug("using default pattern", "pattern", pattern)
+	}
+
 	// Split filename into base and extension
 	ext := filepath.Ext(originalName)
 	baseFilename := strings.TrimSuffix(originalName, ext)
 
+	// Create the timestamp part
+	timestamp := fmt.Sprintf("%d", downloadTime.Unix())
+
 	// Replace pattern variables
-	pattern = strings.ReplaceAll(pattern, "${date}", downloadTime.Format("2006-01-02"))
-	pattern = strings.ReplaceAll(pattern, "${filename}", baseFilename)
+	result := pattern
+	result = strings.ReplaceAll(result, "${unixtime}", timestamp)
+	result = strings.ReplaceAll(result, "${filename}", baseFilename)
+
+	// Log the filename generation process
+	c.logger.Debug("generating filename",
+		"original", originalName,
+		"pattern", pattern,
+		"timestamp", timestamp,
+		"baseFilename", baseFilename,
+		"result", result+ext)
 
 	// Ensure the extension is preserved
-	if ext != "" {
-		return pattern + ext
-	}
-	return pattern
+	return result + ext
 }
 
 func (c *POP3Client) checkResponse(response string, context string) error {
