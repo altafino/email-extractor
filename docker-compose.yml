@@ -1,18 +1,16 @@
-version: '3.8'
-
 services:
   email-service:
-    build: .
+    image: altafino/email-extractor:latest
     ports:
-      - "8080:8080"
+      - "9999:8080"
     volumes:
       - ./config:/app/config
       - attachment-data:/data/attachments
     environment:
-      - CONFIG_PATH=/app/config/config.yaml
+      - CONFIG_PATH=/app/config/default.config.yaml
       - TZ=UTC
-    env_file:
-      - .env
+    # env_file:
+    #   - .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:8080/health"]

@@ -1,8 +1,13 @@
 # Base template for email extractor configurations
 meta:
+  id: "base"
+  name: "Base Template"
+  description: "Base template for email extraction configuration"
+  template: ""
   enabled: true
 
 server:
+  port: 8080
   host: "0.0.0.0"
   read_timeout: 30
   write_timeout: 30
@@ -14,7 +19,7 @@ email:
   max_concurrent: 5
   protocols:
     imap:
-      enabled: true
+      enabled: false
       default_port: 993
       insecure_port: 143
       idle_timeout: 60
@@ -23,53 +28,50 @@ email:
       enabled: true
       default_port: 995
       insecure_port: 110
+      server: "${POP3_SERVER}"
+      username: "${POP3_USERNAME}"
+      password: "${POP3_PASSWORD}"
       delete_after_download: false
   security:
     tls:
       enabled: true
       min_version: "1.2"
       verify_cert: true
+      cert_file: ""
+      key_file: ""
     oauth2:
       enabled: false
-      providers:
-        google:
-          auth_url: "https://accounts.google.com/o/oauth2/auth"
-          token_url: "https://oauth2.googleapis.com/token"
-          scopes:
-            - "https://mail.google.com/"
-        microsoft:
-          auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-          token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-          scopes:
-            - "https://outlook.office.com/IMAP.AccessAsUser.All"
-            - "https://outlook.office.com/POP.AccessAsUser.All"
-            - "offline_access"
+      providers: {}
   retry:
     max_attempts: 3
     delay: 5
   attachments:
     allowed_types:
       - ".pdf"
-      - ".docx"
+      - ".xml"
       - ".xlsx"
-      - ".zip"
-      - ".jpg"
-      - ".jpeg"
-      - ".png"
+      - ".xls"
+      - ".doc"
+      - ".docx"
       - ".txt"
       - ".csv"
-    max_size: 26214400  # 25MB in bytes
+    max_size: 104857600
+    storage_path: "${ATTACHMENT_STORAGE_PATH}"
     naming_pattern: "${unixtime}_${filename}"
     preserve_structure: true
     scan_nested: true
     sanitize_filenames: true
+    handle_duplicates: "increment"
 
 security:
   allowed_ips:
     - "127.0.0.1"
     - "::1"
+  api_keys: []
   cors:
     enabled: true
+    allowed_origins:
+      - "http://localhost:3000"
     allowed_methods:
       - "GET"
       - "POST"
@@ -91,26 +93,33 @@ logging:
   level: "info"
   format: "json"
   output: "stdout"
+  file_path: "${LOG_FILE_PATH}"
   include_caller: true
   redact_sensitive: true
   rotation:
     enabled: true
-    max_size: 100  # MB
-    max_age: 30    # days
+    max_size: 100
+    max_age: 30
     max_backups: 5
     compress: true
 
 monitoring:
   metrics_enabled: true
+  metrics_path: "/metrics"
   health_check_path: "/health"
   tracing:
-    enabled: false
+    enabled: true
+    exporter: "jaeger"
+    endpoint: "${JAEGER_ENDPOINT}"
     sample_rate: 0.1
   profiling:
     enabled: true
     path: "/debug/pprof"
   alerts:
     enabled: true
+    endpoints:
+      - type: "email"
+        address: "${ALERT_EMAIL}"
     thresholds:
       error_rate: 0.01
       response_time_ms: 1000
@@ -118,8 +127,8 @@ monitoring:
 
 scheduling:
   enabled: true
-  frequency_every: "hour"  # minute, hour, day, week, month
-  frequency_amount: 1
+  frequency_every: "minute"
+  frequency_amount: 5
   start_now: true
   start_at: ""  # UTC DateTime (2006-01-02T15:04:05Z)
   stop_at: ""   # UTC DateTime (2006-01-02T15:04:05Z) 
