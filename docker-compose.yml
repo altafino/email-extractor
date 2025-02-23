@@ -9,19 +9,18 @@ services:
         target: /app/config/templates/base.yaml
         read_only: true
       - type: bind
-        source: /opt/email-extractor/config/account1.config.yaml
-        target: /app/config/account1.config.yaml
+        source: /opt/email-extractor/config/default.config.yaml
+        target: /app/config/default.config.yaml
         read_only: true
       - type: bind
-        source: /opt/email-extractor/config/account2.config.yaml
-        target: /app/config/account2.config.yaml
-        read_only: true
-      - attachment-data:/data/attachments
+        source: /opt/email-extractor/data/attachments
+        target: /data/attachments
     environment:
       - TZ=UTC
       - DEBUG=true
       - LOG_LEVEL=debug
-      - CONFIG_FILES=account1.config.yaml,account2.config.yaml
+      - CONFIG_FILES=default.config.yaml
+      - ATTACHMENT_STORAGE_PATH=/data/attachments      
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:8080/health"]

@@ -56,7 +56,7 @@ email:
       - ".txt"
       - ".csv"
     max_size: 104857600
-    storage_path: "${ATTACHMENT_STORAGE_PATH}"
+    storage_path: "/data/attachments"
     naming_pattern: "${unixtime}_${filename}"
     preserve_structure: true
     scan_nested: true
