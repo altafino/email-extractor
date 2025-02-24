@@ -72,7 +72,7 @@ func LoadConfigs(configDir string) error {
 
 		// Ensure storage path exists for each config
 		if err := os.MkdirAll(cfg.Email.Attachments.StoragePath, 0755); err != nil {
-			return fmt.Errorf("failed to create storage path for config %s: %w", cfg.Meta.ID, err)
+			// return fmt.Errorf("failed to create storage path for config %s: %w", cfg.Meta.ID, err)
 		}
 
 		// Apply template if specified
@@ -136,7 +136,7 @@ func loadSingleConfig(path string) (*types.Config, error) {
 			"server", config.Email.Protocols.POP3.Server,
 			"username", config.Email.Protocols.POP3.Username,
 			"port", config.Email.Protocols.POP3.DefaultPort,
-			"tls_enabled", config.Email.Security.TLS.Enabled,
+			"tls_enabled", config.Email.Protocols.POP3.Security.TLS.Enabled,
 		)
 	}
 

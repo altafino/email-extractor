@@ -24,6 +24,23 @@ email:
       insecure_port: 143
       idle_timeout: 60
       batch_size: 100
+      server: "${IMAP_SERVER}"
+      username: "${IMAP_USERNAME}"
+      password: "${IMAP_PASSWORD}"
+      folders: ["INBOX"]
+      use_idle: false
+      security:
+        tls:
+          enabled: true
+          min_version: "1.2"
+          verify_cert: true
+          cert_file: ""
+          key_file: ""
+        oauth2:
+          enabled: false
+          provider: "google"
+          client_id: "${OAUTH_CLIENT_ID}"
+          client_secret: "${OAUTH_CLIENT_SECRET}"
     pop3:
       enabled: true
       default_port: 995
@@ -32,16 +49,18 @@ email:
       username: "${POP3_USERNAME}"
       password: "${POP3_PASSWORD}"
       delete_after_download: false
-  security:
-    tls:
-      enabled: true
-      min_version: "1.2"
-      verify_cert: true
-      cert_file: ""
-      key_file: ""
-    oauth2:
-      enabled: false
-      providers: {}
+      security:
+        tls:
+          enabled: true
+          min_version: "1.2"
+          verify_cert: true
+          cert_file: ""
+          key_file: ""
+        oauth2:
+          enabled: false
+          provider: "google"
+          client_id: "${OAUTH_CLIENT_ID}"
+          client_secret: "${OAUTH_CLIENT_SECRET}"
   retry:
     max_attempts: 3
     delay: 5
@@ -128,7 +147,7 @@ monitoring:
 scheduling:
   enabled: true
   frequency_every: "minute"
-  frequency_amount: 5
+  frequency_amount: 3
   start_now: true
-  start_at: ""  # UTC DateTime (2006-01-02T15:04:05Z)
-  stop_at: ""   # UTC DateTime (2006-01-02T15:04:05Z) 
+  start_at: "2024-03-15T00:00:00Z"  # RFC3339 format
+  stop_at: "2025-12-31T23:59:59Z"   # RFC3339 format 

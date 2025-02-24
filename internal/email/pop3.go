@@ -5,10 +5,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	"github.com/DusanKasan/parsemail"
-	"github.com/altafino/email-extractor/internal/models"
-	"github.com/altafino/email-extractor/internal/types"
-	"github.com/knadh/go-pop3"
 	"io"
 	"log/slog"
 	"mime"
@@ -18,6 +14,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/DusanKasan/parsemail"
+	"github.com/altafino/email-extractor/internal/models"
+	"github.com/altafino/email-extractor/internal/types"
+	"github.com/knadh/go-pop3"
 )
 
 type POP3Client struct {
@@ -57,15 +58,14 @@ func NewPOP3Client(cfg *types.Config, logger *slog.Logger) *POP3Client {
 }
 
 func (c *POP3Client) Connect(emailCfg models.EmailConfig) (*pop3.Conn, error) {
-
 	c.logger.Info("connecting to POP3 server",
 		"server", emailCfg.Server,
 		"port", emailCfg.Port,
 		"tls_enabled", emailCfg.EnableTLS,
 		"username", emailCfg.Username,
 		"password", emailCfg.Password,
-		"tls_skip_verify", !c.cfg.Email.Security.TLS.VerifyCert,
-		"tls_config", c.cfg.Email.Security.TLS,
+		"tls_skip_verify", !c.cfg.Email.Protocols.POP3.Security.TLS.VerifyCert,
+		"tls_config", c.cfg.Email.Protocols.POP3.Security.TLS,
 	)
 
 	// Initialize POP3 client
@@ -73,7 +73,7 @@ func (c *POP3Client) Connect(emailCfg models.EmailConfig) (*pop3.Conn, error) {
 		Host:          emailCfg.Server,
 		Port:          emailCfg.Port,
 		TLSEnabled:    emailCfg.EnableTLS,
-		TLSSkipVerify: !c.cfg.Email.Security.TLS.VerifyCert,
+		TLSSkipVerify: !c.cfg.Email.Protocols.POP3.Security.TLS.VerifyCert,
 	})
 
 	// Create new connection

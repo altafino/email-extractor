@@ -1,7 +1,5 @@
 package types
 
-import "github.com/altafino/email-extractor/internal/models"
-
 // Config represents the application configuration
 type Config struct {
 	// Meta information for the configuration
@@ -27,11 +25,31 @@ type Config struct {
 		MaxConcurrent  int `yaml:"max_concurrent"`
 		Protocols      struct {
 			IMAP struct {
-				Enabled      bool `yaml:"enabled"`
-				DefaultPort  int  `yaml:"default_port"`
-				InsecurePort int  `yaml:"insecure_port"`
-				IdleTimeout  int  `yaml:"idle_timeout"`
-				BatchSize    int  `yaml:"batch_size"`
+				Enabled      bool     `yaml:"enabled"`
+				DefaultPort  int      `yaml:"default_port"`
+				InsecurePort int      `yaml:"insecure_port"`
+				IdleTimeout  int      `yaml:"idle_timeout"`
+				BatchSize    int      `yaml:"batch_size"`
+				Server       string   `yaml:"server"`
+				Username     string   `yaml:"username"`
+				Password     string   `yaml:"password"`
+				Folders      []string `yaml:"folders"`
+				UseIdle      bool     `yaml:"use_idle"`
+				Security     struct {
+					TLS struct {
+						Enabled    bool   `yaml:"enabled"`
+						MinVersion string `yaml:"min_version"`
+						VerifyCert bool   `yaml:"verify_cert"`
+						CertFile   string `yaml:"cert_file"`
+						KeyFile    string `yaml:"key_file"`
+					} `yaml:"tls"`
+					OAuth2 struct {
+						Enabled      bool   `yaml:"enabled"`
+						Provider     string `yaml:"provider"`
+						ClientID     string `yaml:"client_id"`
+						ClientSecret string `yaml:"client_secret"`
+					} `yaml:"oauth2"`
+				} `yaml:"security"`
 			} `yaml:"imap"`
 			POP3 struct {
 				Enabled             bool   `yaml:"enabled"`
@@ -41,22 +59,36 @@ type Config struct {
 				Server              string `yaml:"server"`
 				Username            string `yaml:"username"`
 				Password            string `yaml:"password"`
+				Security            struct {
+					TLS struct {
+						Enabled    bool   `yaml:"enabled"`
+						MinVersion string `yaml:"min_version"`
+						VerifyCert bool   `yaml:"verify_cert"`
+						CertFile   string `yaml:"cert_file"`
+						KeyFile    string `yaml:"key_file"`
+					} `yaml:"tls"`
+					OAuth2 struct {
+						Enabled      bool   `yaml:"enabled"`
+						Provider     string `yaml:"provider"`
+						ClientID     string `yaml:"client_id"`
+						ClientSecret string `yaml:"client_secret"`
+					} `yaml:"oauth2"`
+				} `yaml:"security"`
 			} `yaml:"pop3"`
 		} `yaml:"protocols"`
-		Security struct {
-			TLS struct {
-				Enabled    bool   `yaml:"enabled"`
-				MinVersion string `yaml:"min_version"`
-				VerifyCert bool   `yaml:"verify_cert"`
-				CertFile   string `yaml:"cert_file"`
-				KeyFile    string `yaml:"key_file"`
-			} `yaml:"tls"`
-		} `yaml:"security"`
 		Retry struct {
 			MaxAttempts int `yaml:"max_attempts"`
 			Delay       int `yaml:"delay"`
 		} `yaml:"retry"`
-		Attachments models.AttachmentConfig `yaml:"attachments"`
+		Attachments struct {
+			AllowedTypes      []string `yaml:"allowed_types"`
+			MaxSize           int64    `yaml:"max_size"`
+			StoragePath       string   `yaml:"storage_path"`
+			NamingPattern     string   `yaml:"naming_pattern"`
+			PreserveStructure bool     `yaml:"preserve_structure"`
+			SanitizeFilenames bool     `yaml:"sanitize_filenames"`
+			HandleDuplicates  string   `yaml:"handle_duplicates"`
+		} `yaml:"attachments"`
 	} `yaml:"email"`
 
 	Security struct {
@@ -76,6 +108,13 @@ type Config struct {
 		FilePath        string `yaml:"file_path"`
 		IncludeCaller   bool   `yaml:"include_caller"`
 		RedactSensitive bool   `yaml:"redact_sensitive"`
+		Rotation        struct {
+			Enabled    bool `yaml:"enabled"`
+			MaxSize    int  `yaml:"max_size"`
+			MaxAge     int  `yaml:"max_age"`
+			MaxBackups int  `yaml:"max_backups"`
+			Compress   bool `yaml:"compress"`
+		} `yaml:"rotation"`
 	} `yaml:"logging"`
 
 	Monitoring struct {
@@ -83,18 +122,35 @@ type Config struct {
 		MetricsPath     string `yaml:"metrics_path"`
 		HealthCheckPath string `yaml:"health_check_path"`
 		Tracing         struct {
-			Enabled  bool   `yaml:"enabled"`
-			Exporter string `yaml:"exporter"`
-			Endpoint string `yaml:"endpoint"`
+			Enabled    bool    `yaml:"enabled"`
+			Exporter   string  `yaml:"exporter"`
+			Endpoint   string  `yaml:"endpoint"`
+			SampleRate float64 `yaml:"sample_rate"`
 		} `yaml:"tracing"`
+		Profiling struct {
+			Enabled bool   `yaml:"enabled"`
+			Path    string `yaml:"path"`
+		} `yaml:"profiling"`
+		Alerts struct {
+			Enabled   bool `yaml:"enabled"`
+			Endpoints []struct {
+				Type    string `yaml:"type"`
+				Address string `yaml:"address"`
+			} `yaml:"endpoints"`
+			Thresholds struct {
+				ErrorRate        float64 `yaml:"error_rate"`
+				ResponseTimeMs   int     `yaml:"response_time_ms"`
+				DiskUsagePercent int     `yaml:"disk_usage_percent"`
+			} `yaml:"thresholds"`
+		} `yaml:"alerts"`
 	} `yaml:"monitoring"`
 
 	Scheduling struct {
 		Enabled         bool   `yaml:"enabled"`
-		FrequencyEvery  string `yaml:"frequency_every"` // minute, hour, day, week, month
-		FrequencyAmount int    `yaml:"frequency_amount"`
+		FrequencyEvery  string `yaml:"frequency_every"`  // "minute", "hour", "day"
+		FrequencyAmount int    `yaml:"frequency_amount"` // number of units
 		StartNow        bool   `yaml:"start_now"`
-		StartAt         string `yaml:"start_at"` // UTC DateTime
-		StopAt          string `yaml:"stop_at"`  // UTC DateTime
+		StartAt         string `yaml:"start_at"` // RFC3339 format (2006-01-02T15:04:05Z)
+		StopAt          string `yaml:"stop_at"`  // RFC3339 format (2006-01-02T15:04:05Z)
 	} `yaml:"scheduling"`
 }

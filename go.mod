@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/DusanKasan/parsemail v1.2.0
+	github.com/emersion/go-imap v1.2.1
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-co-op/gocron v1.37.0
 	github.com/imdario/mergo v0.3.16
@@ -15,6 +16,7 @@ require (
 
 require (
 	github.com/emersion/go-message v0.15.0 // indirect
+	github.com/emersion/go-sasl v0.0.0-20200509203442-7bfe0ed36a21 // indirect
 	github.com/emersion/go-textwrapper v0.0.0-20200911093747-65d896831594 // indirect
 	github.com/google/uuid v1.4.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect

@@ -18,47 +18,48 @@ email:
   max_concurrent: 5
   protocols:
     imap:
-      enabled: false
+      enabled: true
       default_port: 993
       insecure_port: 143
       idle_timeout: 60
       batch_size: 100
+      server: "${IMAP_SERVER}"
+      username: "${IMAP_USERNAME}"
+      password: "${IMAP_PASSWORD}"
+      folders: ["INBOX"]
+      use_idle: false
+      security:
+        tls:
+          enabled: true
+          min_version: "1.2"
+          verify_cert: true
+          cert_file: ""
+          key_file: ""
+        oauth2:
+          enabled: false
+          provider: "google"
+          client_id: "${OAUTH_CLIENT_ID}"
+          client_secret: "${OAUTH_CLIENT_SECRET}"
     pop3:
-      enabled: true
+      enabled: false
       default_port: 995
       insecure_port: 110
       server: "${POP3_SERVER}"
       username: "${POP3_USERNAME}"
       password: "${POP3_PASSWORD}"
       delete_after_download: false
-  security:
-    tls:
-      enabled: true
-      min_version: "1.2"
-      verify_cert: true
-      cert_file: ""  # Optional client certificate
-      key_file: ""   # Optional client key
-    oauth2:
-      enabled: false
-      providers:
-        google:
-          client_id: ""
-          client_secret: ""
-          redirect_url: "http://localhost:8080/auth/callback"
-          auth_url: "https://accounts.google.com/o/oauth2/auth"
-          token_url: "https://oauth2.googleapis.com/token"
-          scopes:
-            - "https://mail.google.com/"
-        microsoft:
-          client_id: ""
-          client_secret: ""
-          redirect_url: "http://localhost:8080/auth/callback"
-          auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-          token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-          scopes:
-            - "https://outlook.office.com/IMAP.AccessAsUser.All"
-            - "https://outlook.office.com/POP.AccessAsUser.All"
-            - "offline_access"
+      security:
+        tls:
+          enabled: true
+          min_version: "1.2"
+          verify_cert: true
+          cert_file: ""
+          key_file: ""
+        oauth2:
+          enabled: false
+          provider: "google"
+          client_id: "${OAUTH_CLIENT_ID}"
+          client_secret: "${OAUTH_CLIENT_SECRET}"
   retry:
     max_attempts: 3
     delay: 5

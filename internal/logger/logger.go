@@ -7,21 +7,25 @@ import (
 	"github.com/altafino/email-extractor/internal/types"
 )
 
+// parseLevel converts string level to slog.Level
+func parseLevel(level string) slog.Level {
+	switch level {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
 // Setup creates a new logger based on configuration
 func Setup(cfg *types.Config) *slog.Logger {
-	var level slog.Level
-	switch cfg.Logging.Level {
-	case "debug":
-		level = slog.LevelDebug
-	case "info":
-		level = slog.LevelInfo
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
+	level := parseLevel(cfg.Logging.Level)
 
 	opts := &slog.HandlerOptions{
 		Level:     level,

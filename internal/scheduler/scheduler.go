@@ -98,6 +98,15 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 		jobFunc()
 	}
 
+	// Configure start time if specified
+	if cfg.Scheduling.StartAt != "" {
+		startTime, err := time.Parse(time.RFC3339, cfg.Scheduling.StartAt)
+		if err != nil {
+			return fmt.Errorf("invalid start time: %w", err)
+		}
+		job = job.StartAt(startTime)
+	}
+
 	switch cfg.Scheduling.FrequencyEvery {
 	case "minute":
 		job = job.Minutes()
@@ -111,25 +120,6 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 		job = job.Months()
 	default:
 		return fmt.Errorf("invalid frequency: %s", cfg.Scheduling.FrequencyEvery)
-	}
-
-	// Configure start time
-	if !cfg.Scheduling.StartNow {
-		startTime, err := time.Parse(time.RFC3339, cfg.Scheduling.StartAt)
-		if err != nil {
-			return fmt.Errorf("invalid start time: %w", err)
-		}
-
-		// Additional validation for start time
-		if startTime.Before(time.Now().UTC()) {
-			s.logger.Warn("start time is in the past - job will start immediately",
-				"id", cfg.Meta.ID,
-				"name", cfg.Meta.Name,
-				"start_at", cfg.Scheduling.StartAt,
-			)
-		}
-
-		job = job.StartAt(startTime)
 	}
 
 	// Configure stop time if specified

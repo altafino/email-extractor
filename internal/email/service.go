@@ -1,6 +1,7 @@
 package email
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -31,73 +32,90 @@ func (s *Service) ProcessEmails() error {
 	s.logger.Debug("processing emails with config",
 		"attachment_naming_pattern", s.cfg.Email.Attachments.NamingPattern)
 
-	// Check if POP3 is enabled
-	if !s.cfg.Email.Protocols.POP3.Enabled {
-		s.logger.Info("POP3 protocol is disabled, skipping email processing",
+	// Check which protocol is enabled
+	if !s.cfg.Email.Protocols.POP3.Enabled && !s.cfg.Email.Protocols.IMAP.Enabled {
+		s.logger.Info("No email protocols enabled, skipping email processing",
 			"config_id", s.cfg.Meta.ID,
 		)
 		return nil
 	}
 
-	// Log the actual values being used
-	s.logger.Debug("POP3 configuration",
-		"server", s.cfg.Email.Protocols.POP3.Server,
-		"port", s.cfg.Email.Protocols.POP3.DefaultPort,
-		"username", s.cfg.Email.Protocols.POP3.Username,
-		"tls_enabled", s.cfg.Email.Security.TLS.Enabled,
-		"delete_after_download", s.cfg.Email.Protocols.POP3.DeleteAfterDownload,
-	)
+	// Process IMAP if enabled
+	if s.cfg.Email.Protocols.IMAP.Enabled {
+		s.logger.Info("Starting IMAP processing",
+			"config_id", s.cfg.Meta.ID,
+			"server", s.cfg.Email.Protocols.IMAP.Server,
+			"username", s.cfg.Email.Protocols.IMAP.Username,
+		)
 
-	// Validate required POP3 settings
-	if s.cfg.Email.Protocols.POP3.Server == "" ||
-		s.cfg.Email.Protocols.POP3.Username == "" ||
-		s.cfg.Email.Protocols.POP3.Password == "" {
-		return fmt.Errorf("incomplete POP3 configuration: server, username and password are required")
-	}
+		imapClient, err := NewIMAPClient(s.cfg, s.logger)
+		if err != nil {
+			return fmt.Errorf("failed to create IMAP client: %w", err)
+		}
+		defer imapClient.Close()
 
-	s.logger.Info("starting email processing",
-		"config_id", s.cfg.Meta.ID,
-		"server", s.cfg.Email.Protocols.POP3.Server,
-		"username", s.cfg.Email.Protocols.POP3.Username,
-	)
-
-	// Create email config from settings
-	emailCfg := models.EmailConfig{
-		Protocol:            "pop3",
-		Server:              s.cfg.Email.Protocols.POP3.Server,
-		Port:                s.cfg.Email.Protocols.POP3.DefaultPort,
-		Username:            s.addDomainIfNeeded(s.cfg.Email.Protocols.POP3.Username, s.cfg.Email.Protocols.POP3.Server),
-		Password:            s.cfg.Email.Protocols.POP3.Password,
-		EnableTLS:           s.cfg.Email.Security.TLS.Enabled,
-		DeleteAfterDownload: s.cfg.Email.Protocols.POP3.DeleteAfterDownload,
-	}
-
-	client := NewPOP3Client(s.cfg, s.logger)
-	results, err := client.DownloadEmails(models.EmailDownloadRequest{
-		Config: emailCfg,
-		Async:  false,
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to download emails: %w", err)
-	}
-
-	// Log results
-	for _, result := range results {
-		if result.Status == "error" {
-			s.logger.Error("failed to process email",
-				"message_id", result.MessageID,
-				"error", result.ErrorMessage,
-			)
-			continue
+		if err := imapClient.Connect(context.Background()); err != nil {
+			return fmt.Errorf("failed to connect to IMAP server: %w", err)
 		}
 
-		s.logger.Info("processed email",
-			"message_id", result.MessageID,
-			"subject", result.Subject,
-			"attachments", len(result.Attachments),
-			"status", result.Status,
+		if err := imapClient.FetchMessages(context.Background()); err != nil {
+			return fmt.Errorf("failed to fetch IMAP messages: %w", err)
+		}
+	}
+
+	// Process POP3 if enabled
+	if s.cfg.Email.Protocols.POP3.Enabled {
+		s.logger.Info("Starting POP3 processing",
+			"config_id", s.cfg.Meta.ID,
+			"server", s.cfg.Email.Protocols.POP3.Server,
+			"username", s.cfg.Email.Protocols.POP3.Username,
 		)
+
+		// Validate required POP3 settings
+		if s.cfg.Email.Protocols.POP3.Server == "" ||
+			s.cfg.Email.Protocols.POP3.Username == "" ||
+			s.cfg.Email.Protocols.POP3.Password == "" {
+			return fmt.Errorf("incomplete POP3 configuration: server, username and password are required")
+		}
+
+		// Create email config from settings
+		emailCfg := models.EmailConfig{
+			Protocol:            "pop3",
+			Server:              s.cfg.Email.Protocols.POP3.Server,
+			Port:                s.cfg.Email.Protocols.POP3.DefaultPort,
+			Username:            s.addDomainIfNeeded(s.cfg.Email.Protocols.POP3.Username, s.cfg.Email.Protocols.POP3.Server),
+			Password:            s.cfg.Email.Protocols.POP3.Password,
+			EnableTLS:           s.cfg.Email.Protocols.POP3.Security.TLS.Enabled,
+			DeleteAfterDownload: s.cfg.Email.Protocols.POP3.DeleteAfterDownload,
+		}
+
+		client := NewPOP3Client(s.cfg, s.logger)
+		results, err := client.DownloadEmails(models.EmailDownloadRequest{
+			Config: emailCfg,
+			Async:  false,
+		})
+
+		if err != nil {
+			return fmt.Errorf("failed to download emails: %w", err)
+		}
+
+		// Log results
+		for _, result := range results {
+			if result.Status == "error" {
+				s.logger.Error("failed to process email",
+					"message_id", result.MessageID,
+					"error", result.ErrorMessage,
+				)
+				continue
+			}
+
+			s.logger.Info("processed email",
+				"message_id", result.MessageID,
+				"subject", result.Subject,
+				"attachments", len(result.Attachments),
+				"status", result.Status,
+			)
+		}
 	}
 
 	return nil
