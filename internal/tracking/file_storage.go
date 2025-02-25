@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -12,9 +13,9 @@ import (
 // FileStorage implements the Storage interface using the filesystem
 type FileStorage struct {
 	basePath    string
-	recordsPath string
 	mu          sync.RWMutex
 	initialized bool
+	fileCache   map[string]string // Maps server+username to file path
 }
 
 // NewFileStorage creates a new file-based storage
@@ -24,8 +25,8 @@ func NewFileStorage(basePath string) (*FileStorage, error) {
 	}
 
 	return &FileStorage{
-		basePath:    basePath,
-		recordsPath: filepath.Join(basePath, "email_records.json"),
+		basePath:  basePath,
+		fileCache: make(map[string]string),
 	}, nil
 }
 
@@ -39,14 +40,6 @@ func (fs *FileStorage) Initialize() error {
 		return fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
-	// Create the records file if it doesn't exist
-	if _, err := os.Stat(fs.recordsPath); os.IsNotExist(err) {
-		// Create an empty records file
-		if err := fs.saveRecords([]EmailRecord{}); err != nil {
-			return fmt.Errorf("failed to create records file: %w", err)
-		}
-	}
-
 	fs.initialized = true
 	return nil
 }
@@ -55,6 +48,48 @@ func (fs *FileStorage) Initialize() error {
 func (fs *FileStorage) Close() error {
 	// No resources to clean up for file storage
 	return nil
+}
+
+// getRecordsFilePath returns the path to the records file for the given server and username
+func (fs *FileStorage) getRecordsFilePath(server, username string) string {
+	// Create a safe filename from server and username
+	key := fmt.Sprintf("%s_%s", server, username)
+	
+	if path, ok := fs.fileCache[key]; ok {
+		return path
+	}
+	
+	// Sanitize server and username for use in filename
+	safeServer := sanitizeForFilename(server)
+	safeUsername := sanitizeForFilename(username)
+	
+	// Create filename in format: server_username.json
+	filename := fmt.Sprintf("%s_%s.json", safeServer, safeUsername)
+	path := filepath.Join(fs.basePath, filename)
+	
+	// Cache the path
+	fs.fileCache[key] = path
+	
+	return path
+}
+
+// sanitizeForFilename replaces unsafe characters in a string for use in a filename
+func sanitizeForFilename(s string) string {
+	// Replace common unsafe characters
+	replacer := strings.NewReplacer(
+		"/", "_",
+		"\\", "_",
+		":", "_",
+		"*", "_",
+		"?", "_",
+		"\"", "_",
+		"<", "_",
+		">", "_",
+		"|", "_",
+		" ", "_",
+		"@", "_at_",
+	)
+	return replacer.Replace(s)
 }
 
 // AddRecord adds a new email record
@@ -66,8 +101,10 @@ func (fs *FileStorage) AddRecord(record EmailRecord) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
+	recordsPath := fs.getRecordsFilePath(record.Server, record.Username)
+	
 	// Load existing records
-	records, err := fs.loadRecordsLocked()
+	records, err := fs.loadRecordsFromFile(recordsPath)
 	if err != nil {
 		return err
 	}
@@ -76,7 +113,7 @@ func (fs *FileStorage) AddRecord(record EmailRecord) error {
 	records = append(records, record)
 
 	// Save the updated records
-	return fs.saveRecords(records)
+	return fs.saveRecordsToFile(recordsPath, records)
 }
 
 // HasRecord checks if an email has already been downloaded
@@ -88,15 +125,15 @@ func (fs *FileStorage) HasRecord(protocol, server, username, messageID string) (
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	records, err := fs.loadRecordsLocked()
+	recordsPath := fs.getRecordsFilePath(server, username)
+	
+	records, err := fs.loadRecordsFromFile(recordsPath)
 	if err != nil {
 		return false, err
 	}
 
 	for _, record := range records {
 		if record.Protocol == protocol &&
-			record.Server == server &&
-			record.Username == username &&
 			record.MessageID == messageID {
 			return true, nil
 		}
@@ -114,14 +151,47 @@ func (fs *FileStorage) GetRecords(filter map[string]string) ([]EmailRecord, erro
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	records, err := fs.loadRecordsLocked()
-	if err != nil {
-		return nil, err
+	// If server and username are provided in the filter, we can load just that file
+	if server, hasServer := filter["server"]; hasServer {
+		if username, hasUsername := filter["username"]; hasUsername {
+			recordsPath := fs.getRecordsFilePath(server, username)
+			records, err := fs.loadRecordsFromFile(recordsPath)
+			if err != nil {
+				return nil, err
+			}
+			
+			return fs.filterRecords(records, filter), nil
+		}
 	}
 
+	// Otherwise, we need to load all files
+	var allRecords []EmailRecord
+	
+	// Read all JSON files in the directory
+	entries, err := os.ReadDir(fs.basePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tracking directory: %w", err)
+	}
+	
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			recordsPath := filepath.Join(fs.basePath, entry.Name())
+			records, err := fs.loadRecordsFromFile(recordsPath)
+			if err != nil {
+				continue // Skip files that can't be read
+			}
+			allRecords = append(allRecords, records...)
+		}
+	}
+	
+	return fs.filterRecords(allRecords, filter), nil
+}
+
+// filterRecords applies filters to a list of records
+func (fs *FileStorage) filterRecords(records []EmailRecord, filter map[string]string) []EmailRecord {
 	// If no filter is provided, return all records
 	if filter == nil || len(filter) == 0 {
-		return records, nil
+		return records
 	}
 
 	// Apply filters
@@ -160,7 +230,7 @@ func (fs *FileStorage) GetRecords(filter map[string]string) ([]EmailRecord, erro
 		}
 	}
 
-	return filteredRecords, nil
+	return filteredRecords
 }
 
 // CleanupOldRecords removes records older than the specified retention period
@@ -172,26 +242,52 @@ func (fs *FileStorage) CleanupOldRecords(retentionDays int) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	records, err := fs.loadRecordsLocked()
-	if err != nil {
-		return err
-	}
-
 	cutoffTime := time.Now().AddDate(0, 0, -retentionDays)
-	var newRecords []EmailRecord
-
-	for _, record := range records {
-		if record.DownloadedAt.After(cutoffTime) {
-			newRecords = append(newRecords, record)
+	
+	// Read all JSON files in the directory
+	entries, err := os.ReadDir(fs.basePath)
+	if err != nil {
+		return fmt.Errorf("failed to read tracking directory: %w", err)
+	}
+	
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			recordsPath := filepath.Join(fs.basePath, entry.Name())
+			
+			records, err := fs.loadRecordsFromFile(recordsPath)
+			if err != nil {
+				continue // Skip files that can't be read
+			}
+			
+			var newRecords []EmailRecord
+			for _, record := range records {
+				if record.DownloadedAt.After(cutoffTime) {
+					newRecords = append(newRecords, record)
+				}
+			}
+			
+			// If all records were removed, delete the file
+			if len(newRecords) == 0 {
+				os.Remove(recordsPath)
+				continue
+			}
+			
+			// Otherwise, save the filtered records
+			fs.saveRecordsToFile(recordsPath, newRecords)
 		}
 	}
 
-	return fs.saveRecords(newRecords)
+	return nil
 }
 
-// loadRecordsLocked loads all records from the file (assumes lock is held)
-func (fs *FileStorage) loadRecordsLocked() ([]EmailRecord, error) {
-	data, err := os.ReadFile(fs.recordsPath)
+// loadRecordsFromFile loads records from a specific file
+func (fs *FileStorage) loadRecordsFromFile(path string) ([]EmailRecord, error) {
+	// If file doesn't exist, return empty records
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return []EmailRecord{}, nil
+	}
+	
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read records file: %w", err)
 	}
@@ -209,14 +305,14 @@ func (fs *FileStorage) loadRecordsLocked() ([]EmailRecord, error) {
 	return records, nil
 }
 
-// saveRecords saves all records to the file
-func (fs *FileStorage) saveRecords(records []EmailRecord) error {
+// saveRecordsToFile saves records to a specific file
+func (fs *FileStorage) saveRecordsToFile(path string, records []EmailRecord) error {
 	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize records: %w", err)
 	}
 
-	if err := os.WriteFile(fs.recordsPath, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write records file: %w", err)
 	}
 
