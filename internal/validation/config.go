@@ -154,6 +154,8 @@ func validateTracking(cfg *types.Config) error {
 		return fmt.Errorf("email.tracking.tracking_format must be 'json' or 'csv'")
 	}
 
+	// No validation needed for track_downloaded as it's a boolean
+
 	return nil
 }
 

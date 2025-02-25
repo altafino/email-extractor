@@ -90,11 +90,12 @@ type Config struct {
 			HandleDuplicates  string   `yaml:"handle_duplicates"`
 		} `yaml:"attachments"`
 		Tracking struct {
-			Enabled        bool   `yaml:"enabled"`
-			StorageType    string `yaml:"storage_type"`    // "file" or "database"
-			StoragePath    string `yaml:"storage_path"`    // Path for file-based tracking
-			RetentionDays  int    `yaml:"retention_days"`  // How long to keep tracking records
-			TrackingFormat string `yaml:"tracking_format"` // "json" or "csv"
+			Enabled         bool   `yaml:"enabled"`
+			StorageType     string `yaml:"storage_type"`     // "file" or "database"
+			StoragePath     string `yaml:"storage_path"`     // Path for file-based tracking
+			RetentionDays   int    `yaml:"retention_days"`   // How long to keep tracking records
+			TrackingFormat  string `yaml:"tracking_format"`  // "json" or "csv"
+			TrackDownloaded bool   `yaml:"track_downloaded"` // Whether to track and skip already downloaded emails
 		} `yaml:"tracking"`
 	} `yaml:"email"`
 
@@ -102,10 +103,19 @@ type Config struct {
 		AllowedIPs []string `yaml:"allowed_ips"`
 		APIKeys    []string `yaml:"api_keys"`
 		CORS       struct {
-			Enabled        bool     `yaml:"enabled"`
-			AllowedOrigins []string `yaml:"allowed_origins"`
-			AllowedMethods []string `yaml:"allowed_methods"`
+			Enabled          bool     `yaml:"enabled"`
+			AllowedOrigins   []string `yaml:"allowed_origins"`
+			AllowedMethods   []string `yaml:"allowed_methods"`
+			AllowedHeaders   []string `yaml:"allowed_headers"`
+			ExposeHeaders    []string `yaml:"expose_headers"`
+			MaxAge           int      `yaml:"max_age"`
+			AllowCredentials bool     `yaml:"allow_credentials"`
 		} `yaml:"cors"`
+		RateLimiting struct {
+			Enabled           bool `yaml:"enabled"`
+			RequestsPerSecond int  `yaml:"requests_per_second"`
+			Burst             int  `yaml:"burst"`
+		} `yaml:"rate_limiting"`
 	} `yaml:"security"`
 
 	Logging struct {
@@ -154,10 +164,10 @@ type Config struct {
 
 	Scheduling struct {
 		Enabled         bool   `yaml:"enabled"`
-		FrequencyEvery  string `yaml:"frequency_every"`  // "minute", "hour", "day"
-		FrequencyAmount int    `yaml:"frequency_amount"` // number of units
+		FrequencyEvery  string `yaml:"frequency_every"`
+		FrequencyAmount int    `yaml:"frequency_amount"`
 		StartNow        bool   `yaml:"start_now"`
-		StartAt         string `yaml:"start_at"` // RFC3339 format (2006-01-02T15:04:05Z)
-		StopAt          string `yaml:"stop_at"`  // RFC3339 format (2006-01-02T15:04:05Z)
+		StartAt         string `yaml:"start_at"`
+		StopAt          string `yaml:"stop_at"`
 	} `yaml:"scheduling"`
 }

@@ -87,6 +87,7 @@ email:
     storage_path: "/data/tracking"
     retention_days: 30
     tracking_format: "json"
+    track_downloaded: true
 
 security:
   allowed_ips:

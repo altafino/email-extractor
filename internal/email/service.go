@@ -30,7 +30,8 @@ func NewService(cfg *types.Config, logger *slog.Logger) *Service {
 func (s *Service) ProcessEmails() error {
 	// Add debug logging at the start
 	s.logger.Debug("processing emails with config",
-		"attachment_naming_pattern", s.cfg.Email.Attachments.NamingPattern)
+		"attachment_naming_pattern", s.cfg.Email.Attachments.NamingPattern,
+		"track_downloaded", s.cfg.Email.Tracking.TrackDownloaded)
 
 	// Check which protocol is enabled
 	if !s.cfg.Email.Protocols.POP3.Enabled && !s.cfg.Email.Protocols.IMAP.Enabled {
