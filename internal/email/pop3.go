@@ -17,6 +17,7 @@ import (
 
 	"github.com/DusanKasan/parsemail"
 	"github.com/altafino/email-extractor/internal/models"
+	"github.com/altafino/email-extractor/internal/tracking"
 	"github.com/altafino/email-extractor/internal/types"
 	"github.com/knadh/go-pop3"
 )
@@ -307,6 +308,15 @@ func parseHeaders(r io.Reader) (map[string][]string, error) {
 func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
 	c.logger.Info("starting email download")
 
+	// Create tracking manager
+	trackingManager, err := tracking.NewManager(c.cfg, c.logger)
+	if err != nil {
+		c.logger.Error("failed to initialize tracking manager", "error", err)
+		// Continue without tracking if it fails
+	} else {
+		defer trackingManager.Close()
+	}
+
 	conn, err := c.Connect(req.Config)
 	if err != nil {
 		return nil, err
@@ -333,6 +343,25 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 	}
 
 	for _, popMsg := range msgList {
+		// Check if this message has already been downloaded
+		if trackingManager != nil && c.cfg.Email.Tracking.TrackDownloaded {
+			downloaded, err := trackingManager.IsEmailDownloaded(
+				req.Config.Protocol,
+				req.Config.Server,
+				req.Config.Username,
+				fmt.Sprintf("%d", popMsg.ID),
+			)
+			if err != nil {
+				c.logger.Warn("failed to check if email was downloaded",
+					"message_id", popMsg.ID,
+					"error", err)
+				// Continue processing this message
+			} else if downloaded {
+				c.logger.Debug("skipping already downloaded message", "message_id", popMsg.ID)
+				continue // Skip this message
+			}
+		}
+
 		result := models.DownloadResult{
 			MessageID:    fmt.Sprintf("%d", popMsg.ID),
 			DownloadedAt: time.Now().UTC(),
@@ -636,6 +665,11 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		c.logger.Debug("parsed email",
 			"attachment_count", len(attachments))
 
+		// Extract subject for tracking
+		// We don't have access to the subject directly from popMsg
+		// We'll need to extract it from the parsed email or leave it blank
+		// For now, we'll leave it blank and just use the message ID for tracking
+		
 		// Process attachments
 		for _, a := range attachments {
 			if c.isAllowedAttachment(a.Filename) {
@@ -665,6 +699,23 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		}
 
 		results = append(results, result)
+
+		// Track this email as downloaded
+		if trackingManager != nil {
+			if err := trackingManager.TrackEmail(
+				req.Config.Protocol,
+				req.Config.Server,
+				req.Config.Username,
+				result.MessageID,
+				result.Subject, // This will be empty or whatever was set during email parsing
+				result.Status,
+			); err != nil {
+				c.logger.Warn("failed to track email",
+					"message_id", result.MessageID,
+					"error", err)
+				// Continue processing
+			}
+		}
 
 		// Delete message if configured
 		if req.Config.DeleteAfterDownload {

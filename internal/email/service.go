@@ -8,6 +8,7 @@ import (
 
 	"github.com/altafino/email-extractor/internal/models"
 	"github.com/altafino/email-extractor/internal/types"
+	"github.com/altafino/email-extractor/internal/tracking"
 )
 
 type Service struct {
@@ -32,6 +33,23 @@ func (s *Service) ProcessEmails() error {
 	s.logger.Debug("processing emails with config",
 		"attachment_naming_pattern", s.cfg.Email.Attachments.NamingPattern,
 		"track_downloaded", s.cfg.Email.Tracking.TrackDownloaded)
+
+	// Initialize tracking manager for cleanup
+	if s.cfg.Email.Tracking.Enabled {
+		trackingManager, err := tracking.NewManager(s.cfg, s.logger)
+		if err != nil {
+			s.logger.Warn("failed to initialize tracking manager for cleanup", "error", err)
+			// Continue without tracking cleanup
+		} else {
+			defer trackingManager.Close()
+			
+			// Clean up old records
+			if err := trackingManager.CleanupOldRecords(); err != nil {
+				s.logger.Warn("failed to clean up old tracking records", "error", err)
+				// Continue processing
+			}
+		}
+	}
 
 	// Check which protocol is enabled
 	if !s.cfg.Email.Protocols.POP3.Enabled && !s.cfg.Email.Protocols.IMAP.Enabled {
