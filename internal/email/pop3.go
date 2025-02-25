@@ -669,7 +669,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		// We don't have access to the subject directly from popMsg
 		// We'll need to extract it from the parsed email or leave it blank
 		// For now, we'll leave it blank and just use the message ID for tracking
-		
+
 		// Process attachments
 		for _, a := range attachments {
 			if c.isAllowedAttachment(a.Filename) {
