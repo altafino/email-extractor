@@ -36,6 +36,15 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 	// Set connection timeout
 	timeout := time.Duration(c.config.Email.DefaultTimeout) * time.Second
 
+	// Log connection attempt with obfuscated password
+	c.logger.Info("connecting to IMAP server",
+		"server", c.config.Email.Protocols.IMAP.Server,
+		"port", c.config.Email.Protocols.IMAP.DefaultPort,
+		"tls_enabled", c.config.Email.Protocols.IMAP.Security.TLS.Enabled,
+		"username", c.config.Email.Protocols.IMAP.Username,
+		"password", "********", // Obfuscated password
+	)
+
 	if c.config.Email.Protocols.IMAP.Security.TLS.Enabled {
 		// Configure TLS
 		tlsConfig := &tls.Config{

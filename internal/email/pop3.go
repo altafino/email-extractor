@@ -61,12 +61,15 @@ func NewPOP3Client(cfg *types.Config, logger *slog.Logger) *POP3Client {
 }
 
 func (c *POP3Client) Connect(emailCfg models.EmailConfig) (*pop3.Conn, error) {
+	// Obfuscate password for logging
+	obfuscatedPassword := "********"
+
 	c.logger.Info("connecting to POP3 server",
 		"server", emailCfg.Server,
 		"port", emailCfg.Port,
 		"tls_enabled", emailCfg.EnableTLS,
 		"username", emailCfg.Username,
-		"password", emailCfg.Password,
+		"password", obfuscatedPassword, // Use obfuscated password in logs
 		"tls_skip_verify", !c.cfg.Email.Protocols.POP3.Security.TLS.VerifyCert,
 		"tls_config", c.cfg.Email.Protocols.POP3.Security.TLS,
 	)
@@ -85,7 +88,7 @@ func (c *POP3Client) Connect(emailCfg models.EmailConfig) (*pop3.Conn, error) {
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 
-	// Authenticate
+	// Authenticate - use the actual password here, not the obfuscated one
 	if err := conn.Auth(emailCfg.Username, emailCfg.Password); err != nil {
 		conn.Quit()
 		return nil, fmt.Errorf("authentication failed: %w", err)
