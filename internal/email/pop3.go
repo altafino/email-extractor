@@ -51,6 +51,19 @@ var mimeToExt = map[string]string{
 	"application/x-rar-compressed": ".rar",
 	"application/x-7z-compressed":  ".7z",
 	"application/rtf":              ".rtf",
+	"application/octet-stream":     ".bin",
+	"application/x-compressed":     ".tar",
+	"application/x-gzip":           ".gz",
+	"application/x-bzip2":          ".bz2",
+	"application/x-tar":            ".tar",
+	"application/x-7zip-compressed": ".7z",
+	"application/x-compressed-tar": ".tar.gz",
+	"application/x-compressed-zip": ".zip.gz",
+	"application/x-compressed-bz2": ".bz2.gz",
+	"application/x-compressed-7z": ".7z.gz",
+	"application/x-compressed-rar": ".rar.gz",
+	
+	
 }
 
 func NewPOP3Client(cfg *types.Config, logger *slog.Logger) *POP3Client {
@@ -878,6 +891,7 @@ func (c *POP3Client) saveAttachment(filename string, content []byte) error {
 	} else {
 		finalPath = filepath.Join(c.cfg.Email.Attachments.StoragePath, filename)
 	}
+	c.logger.Debug("final path", "path", finalPath)
 
 	// Check if file already exists
 	if _, err := os.Stat(finalPath); err == nil {
