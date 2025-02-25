@@ -81,6 +81,12 @@ email:
     scan_nested: true
     sanitize_filenames: true
     handle_duplicates: "increment"
+  tracking:
+    enabled: true
+    storage_type: "file"
+    storage_path: "/data/tracking"
+    retention_days: 30
+    tracking_format: "json"
 
 security:
   allowed_ips:

@@ -88,6 +88,11 @@ func validateEmail(cfg *types.Config) error {
 		return fmt.Errorf("attachments validation failed: %w", err)
 	}
 
+	// Validate tracking configuration
+	if err := validateTracking(cfg); err != nil {
+		return fmt.Errorf("tracking validation failed: %w", err)
+	}
+
 	return nil
 }
 
@@ -112,6 +117,41 @@ func validateAttachments(cfg *types.Config) error {
 
 	if !filepath.IsAbs(cfg.Email.Attachments.StoragePath) {
 		return fmt.Errorf("email.attachments.storage_path must be absolute")
+	}
+
+	return nil
+}
+
+func validateTracking(cfg *types.Config) error {
+	if !cfg.Email.Tracking.Enabled {
+		return nil // Skip validation if tracking is disabled
+	}
+
+	switch cfg.Email.Tracking.StorageType {
+	case "file", "database":
+		// Valid storage types
+	default:
+		return fmt.Errorf("email.tracking.storage_type must be 'file' or 'database'")
+	}
+
+	if cfg.Email.Tracking.StorageType == "file" {
+		if cfg.Email.Tracking.StoragePath == "" {
+			return fmt.Errorf("email.tracking.storage_path is required when storage_type is 'file'")
+		}
+		if !filepath.IsAbs(cfg.Email.Tracking.StoragePath) {
+			return fmt.Errorf("email.tracking.storage_path must be absolute")
+		}
+	}
+
+	if cfg.Email.Tracking.RetentionDays <= 0 {
+		return fmt.Errorf("email.tracking.retention_days must be positive")
+	}
+
+	switch cfg.Email.Tracking.TrackingFormat {
+	case "json", "csv":
+		// Valid formats
+	default:
+		return fmt.Errorf("email.tracking.tracking_format must be 'json' or 'csv'")
 	}
 
 	return nil

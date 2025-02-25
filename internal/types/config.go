@@ -89,6 +89,13 @@ type Config struct {
 			SanitizeFilenames bool     `yaml:"sanitize_filenames"`
 			HandleDuplicates  string   `yaml:"handle_duplicates"`
 		} `yaml:"attachments"`
+		Tracking struct {
+			Enabled        bool   `yaml:"enabled"`
+			StorageType    string `yaml:"storage_type"`    // "file" or "database"
+			StoragePath    string `yaml:"storage_path"`    // Path for file-based tracking
+			RetentionDays  int    `yaml:"retention_days"`  // How long to keep tracking records
+			TrackingFormat string `yaml:"tracking_format"` // "json" or "csv"
+		} `yaml:"tracking"`
 	} `yaml:"email"`
 
 	Security struct {
