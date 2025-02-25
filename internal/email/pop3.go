@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jhillyerd/enmime/mediatype"
 	"github.com/DusanKasan/parsemail"
 	"github.com/altafino/email-extractor/internal/models"
 	"github.com/altafino/email-extractor/internal/tracking"
@@ -200,7 +201,9 @@ func (c *POP3Client) extractAttachmentsMultipart(content []byte, boundary string
 				contentType = ct[0]
 			}
 
-			mediaType, params, err := mime.ParseMediaType(contentType)
+			//mediaType, params, err := mime.ParseMediaType(contentType)
+			mediaType, params,invalidParams, err := mediatype.Parse(contentType)
+			c.logger.Debug("mediaType", "mediaType", mediaType, "params", params, "invalidParams", invalidParams, "err", err)
 			if err == nil {
 				// Handle nested multipart
 				if strings.Contains(strings.ToLower(mediaType), "multipart") {
@@ -225,7 +228,7 @@ func (c *POP3Client) extractAttachmentsMultipart(content []byte, boundary string
 
 				filename := ""
 				if contentDisp != "" {
-					if _, params, err := mime.ParseMediaType(contentDisp); err == nil {
+					if _, params, _, err := mediatype.Parse(contentDisp); err == nil {
 						if fn, ok := params["filename"]; ok {
 							filename = decodeFilename(fn)
 						}
@@ -249,7 +252,17 @@ func (c *POP3Client) extractAttachmentsMultipart(content []byte, boundary string
 						strings.Contains(mediaType, "msword") ||
 						strings.Contains(mediaType, "excel") ||
 						strings.Contains(mediaType, "spreadsheet") ||
-						strings.Contains(mediaType, "document")
+						strings.Contains(mediaType, "document") ||
+						strings.Contains(mediaType, "text") ||
+						strings.Contains(mediaType, "audio") ||
+						strings.Contains(mediaType, "video") ||
+						strings.Contains(mediaType, "application") ||
+						strings.Contains(mediaType, "zip") ||
+						strings.Contains(mediaType, "tar") ||
+						strings.Contains(mediaType, "gz") ||
+						strings.Contains(mediaType, "bz2") ||
+						strings.Contains(mediaType, "7z") ||
+						strings.Contains(mediaType, "rar")
 				}
 
 				if isAttachment && len(currentPart) > 0 {
@@ -589,7 +602,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 				"clean_content_type", cleanContentType)
 
 			// Extract boundary from Content-Type
-			mediaType, params, err := mime.ParseMediaType(cleanContentType)
+			mediaType, params, _, err := mediatype.Parse(cleanContentType)
 			if err != nil {
 				c.logger.Debug("failed to parse media type",
 					"message_id", popMsg.ID,
@@ -602,7 +615,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 				cleanContentType = strings.ReplaceAll(cleanContentType, `'`, "")
 				cleanContentType = strings.TrimSpace(cleanContentType)
 				// Try parsing again with cleaned content type
-				mediaType, params, err = mime.ParseMediaType(cleanContentType)
+				mediaType, params, _, err = mediatype.Parse(cleanContentType)
 				if err == nil {
 					c.logger.Debug("successfully parsed media type after cleanup",
 						"message_id", popMsg.ID,
