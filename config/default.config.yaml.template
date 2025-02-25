@@ -18,7 +18,7 @@ email:
   max_concurrent: 5
   protocols:
     imap:
-      enabled: true
+      enabled: false
       default_port: 993
       insecure_port: 143
       idle_timeout: 60
@@ -33,33 +33,25 @@ email:
           enabled: true
           min_version: "1.2"
           verify_cert: true
-          cert_file: ""
-          key_file: ""
         oauth2:
           enabled: false
           provider: "google"
-          client_id: "${OAUTH_CLIENT_ID}"
-          client_secret: "${OAUTH_CLIENT_SECRET}"
     pop3:
-      enabled: false
+      enabled: true
       default_port: 995
       insecure_port: 110
-      server: "${POP3_SERVER}"
-      username: "${POP3_USERNAME}"
-      password: "${POP3_PASSWORD}"
+      server: "email-ssl.com.br"  # Example for Gmail POP3
+      username: "ah@test.com" #"${POP3_USERNAME}"  # Will be replaced with environment variable
+      password: "somepassword" #"${POP3_PASSWORD}"  # Will be replaced with environment variable
       delete_after_download: false
       security:
         tls:
           enabled: true
           min_version: "1.2"
           verify_cert: true
-          cert_file: ""
-          key_file: ""
         oauth2:
           enabled: false
           provider: "google"
-          client_id: "${OAUTH_CLIENT_ID}"
-          client_secret: "${OAUTH_CLIENT_SECRET}"
   retry:
     max_attempts: 3
     delay: 5
@@ -84,7 +76,7 @@ email:
       - ".7z"
       - ".rtf"
     max_size: 104857600  # 100MB in bytes
-    storage_path: "${ATTACHMENT_STORAGE_PATH}"
+    storage_path: "/data/attachments"
     naming_pattern: "${unixtime}_${filename}"
     preserve_structure: true
     scan_nested: true
@@ -122,7 +114,7 @@ logging:
   level: "debug"  # debug, info, warn, error
   format: "json" # json, text
   output: "stdout"  # stdout, file
-  file_path: "${LOG_FILE_PATH}"
+  file_path: "/var/log/email-extractor.log"
   include_caller: true
   redact_sensitive: true
   rotation:
@@ -139,7 +131,7 @@ monitoring:
   tracing:
     enabled: true
     exporter: "jaeger"
-    endpoint: "${JAEGER_ENDPOINT}"
+    endpoint: "http://jaeger:14268/api/traces"
     sample_rate: 0.1
   profiling:
     enabled: true
@@ -148,7 +140,7 @@ monitoring:
     enabled: true
     endpoints:
       - type: "email"
-        address: "${ALERT_EMAIL}"
+        address: "alerts@example.com"
     thresholds:
       error_rate: 0.01
       response_time_ms: 1000
