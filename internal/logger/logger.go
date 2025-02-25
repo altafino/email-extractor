@@ -36,6 +36,10 @@ func Setup(cfg *types.Config) *slog.Logger {
 		})
 	} else {
 		opts := &devslog.Options{
+			HandlerOptions: &slog.HandlerOptions{
+				Level:     level,
+				AddSource: cfg.Logging.IncludeCaller,
+			},
 			MaxSlicePrintSize: 4,
 			SortKeys:          true,
 			TimeFormat:        "[04:05]",
