@@ -3,7 +3,9 @@ package email
 import (
 	"bufio"
 	"bytes"
+	"crypto/md5"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -305,6 +307,38 @@ func parseHeaders(r io.Reader) (map[string][]string, error) {
 	return headers, scanner.Err()
 }
 
+// Simplify the function to only use the message content
+func (c *POP3Client) generateUniqueMessageID(msgContent []byte) string {
+	// Try to extract Message-ID header from content
+	messageIDHeader := extractMessageIDHeader(msgContent)
+	if messageIDHeader != "" {
+		return messageIDHeader
+	}
+
+	// If no Message-ID header, generate MD5 hash of content
+	hash := md5.Sum(msgContent)
+	return hex.EncodeToString(hash[:])
+}
+
+// Extract Message-ID header from email content
+func extractMessageIDHeader(content []byte) string {
+	// Simple implementation to extract Message-ID header
+	lines := bytes.Split(content, []byte("\n"))
+	for _, line := range lines {
+		if bytes.HasPrefix(bytes.ToLower(line), []byte("message-id:")) {
+			parts := bytes.SplitN(line, []byte(":"), 2)
+			if len(parts) == 2 {
+				// Clean up the Message-ID value
+				id := string(bytes.TrimSpace(parts[1]))
+				// Remove any < > brackets if present
+				id = strings.Trim(id, "<>")
+				return id
+			}
+		}
+	}
+	return ""
+}
+
 func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
 	c.logger.Info("starting email download")
 
@@ -393,8 +427,32 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 
 		c.logger.Debug("message size", "bytes", buf.Len(), "message_id", popMsg.ID)
 
-		// Check if we need to add headers
+		// Get message content
 		content := buf.Bytes()
+
+		// Generate a unique message ID
+		uniqueID := c.generateUniqueMessageID(content)
+
+		// Check if this message has already been downloaded using the unique ID
+		if trackingManager != nil && c.cfg.Email.Tracking.TrackDownloaded {
+			downloaded, err := trackingManager.IsEmailDownloaded(
+				req.Config.Protocol,
+				req.Config.Server,
+				req.Config.Username,
+				uniqueID,
+			)
+			if err != nil {
+				c.logger.Warn("failed to check if email was downloaded",
+					"message_id", uniqueID,
+					"error", err)
+				// Continue processing this message
+			} else if downloaded {
+				c.logger.Debug("skipping already downloaded message", "message_id", uniqueID)
+				continue // Skip this message
+			}
+		}
+
+		// Check if we need to add headers
 		var boundary string
 
 		// Try to find the actual boundary in the content
@@ -700,18 +758,18 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 
 		results = append(results, result)
 
-		// Track this email as downloaded
+		// Track this email as downloaded with the unique ID
 		if trackingManager != nil {
 			if err := trackingManager.TrackEmail(
 				req.Config.Protocol,
 				req.Config.Server,
 				req.Config.Username,
-				result.MessageID,
-				result.Subject, // This will be empty or whatever was set during email parsing
+				uniqueID, // Use the unique ID
+				result.Subject,
 				result.Status,
 			); err != nil {
 				c.logger.Warn("failed to track email",
-					"message_id", result.MessageID,
+					"message_id", uniqueID,
 					"error", err)
 				// Continue processing
 			}
