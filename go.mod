@@ -7,6 +7,7 @@ require (
 	github.com/emersion/go-imap v1.2.1
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-co-op/gocron v1.37.0
+	github.com/golang-cz/devslog v0.0.11
 	github.com/imdario/mergo v0.3.16
 	github.com/knadh/go-pop3 v0.3.0
 	github.com/spf13/cobra v1.8.0
