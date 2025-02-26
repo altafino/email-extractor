@@ -10,8 +10,9 @@ import (
 	"mime/quotedprintable"
 	"strings"
 
-	"github.com/yourusername/yourproject/internal/mediatype"
-	"github.com/yourusername/yourproject/internal/parsemail"
+	"github.com/DusanKasan/parsemail"
+	"github.com/jhillyerd/enmime/mediatype"
+
 )
 
 // ExtractAttachmentsMultipart extracts attachments from multipart content
