@@ -65,7 +65,7 @@ func loadTemplate(path string) (*types.Config, error) {
 
 	// Ensure template has correct naming pattern
 	if template.Email.Attachments.NamingPattern == "" || template.Email.Attachments.NamingPattern == "_" {
-		template.Email.Attachments.NamingPattern = "${unixtime}_${filename}"
+		template.Email.Attachments.NamingPattern = "${timestamp}_${filename}.${ext}"
 		logger.Debug("set default naming pattern in template",
 			"template_path", path,
 			"pattern", template.Email.Attachments.NamingPattern)
