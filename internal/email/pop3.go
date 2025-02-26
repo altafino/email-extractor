@@ -19,9 +19,9 @@ import (
 	"time"
 
 	"github.com/DusanKasan/parsemail"
+	"github.com/altafino/email-extractor/internal/email/parser"
 	"github.com/altafino/email-extractor/internal/errorlog"
 	"github.com/altafino/email-extractor/internal/models"
-	"github.com/altafino/email-extractor/internal/email/parser"
 	"github.com/altafino/email-extractor/internal/tracking"
 	"github.com/altafino/email-extractor/internal/types"
 	"github.com/jhillyerd/enmime/mediatype"
@@ -315,44 +315,6 @@ func extractHeaderValue(headers map[string][]string, headerNames []string) strin
 		}
 	}
 	return ""
-}
-
-// Helper function to extract and parse date from headers
-func extractDateValue(headers map[string][]string, logger *slog.Logger) time.Time {
-	// Try multiple header names for date
-	dateHeaderNames := []string{"Date", "DATE", "date", "Sent", "SENT", "sent"}
-	dateStr := extractHeaderValue(headers, dateHeaderNames)
-
-	if dateStr != "" {
-		// Try various date formats
-		dateFormats := []string{
-			time.RFC1123Z,
-			time.RFC1123,
-			time.RFC822Z,
-			time.RFC822,
-			"Mon, 2 Jan 2006 15:04:05 -0700",
-			"2 Jan 2006 15:04:05 -0700",
-			"Mon, 2 Jan 2006 15:04:05 MST",
-			"Mon, 2 Jan 2006 15:04:05",
-		}
-
-		for _, format := range dateFormats {
-			if parsedTime, err := time.Parse(format, dateStr); err == nil {
-				logger.Debug("successfully parsed date",
-					"date_string", dateStr,
-					"format", format,
-					"parsed_time", parsedTime)
-				return parsedTime
-			}
-		}
-
-		logger.Debug("failed to parse date with any format", "date_string", dateStr)
-	} else {
-		logger.Debug("no date header found")
-	}
-
-	// If we can't parse the date, use current time
-	return time.Now().UTC()
 }
 
 // Improve the parseHeaders function to be more robust
@@ -1116,7 +1078,7 @@ func (c *POP3Client) saveAttachment(filename string, content []byte) error {
 
 	// First sanitize if configured (before pattern application)
 	if c.cfg.Email.Attachments.SanitizeFilenames {
-		filename = c.sanitizeFilename(filename)
+		filename = c.SanitizeFilename(filename)
 	}
 
 	// Apply the naming pattern
@@ -1142,7 +1104,7 @@ func (c *POP3Client) saveAttachment(filename string, content []byte) error {
 
 	// Sanitize filename if configured
 	if c.cfg.Email.Attachments.SanitizeFilenames {
-		filename = c.sanitizeFilename(filename)
+		filename = c.SanitizeFilename(filename)
 	}
 
 	if err := os.MkdirAll(c.cfg.Email.Attachments.StoragePath, 0755); err != nil {
@@ -1191,7 +1153,7 @@ func (c *POP3Client) saveAttachment(filename string, content []byte) error {
 	return nil
 }
 
-func (c *POP3Client) sanitizeFilename(filename string) string {
+func (c *POP3Client) SanitizeFilename(filename string) string {
 	// Remove any path components
 	filename = filepath.Base(filename)
 

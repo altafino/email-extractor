@@ -4,16 +4,49 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"github.com/altafino/email-extractor/internal/utility/u_io"
 	"io"
 	"log/slog"
 	"mime"
 	"mime/quotedprintable"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/DusanKasan/parsemail"
 	"github.com/jhillyerd/enmime/mediatype"
-
 )
+
+// SaveAttachmentToFile saves attachment data to a file
+func SaveAttachmentToFile(data []byte, filename string, outputDir string, logger *slog.Logger) (string, error) {
+	// Create output directory if it doesn't exist
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Clean filename to remove any potentially dangerous characters
+	safeFilename := u_io.CleanFilename(filename)
+
+	// Ensure filename is not empty
+	if safeFilename == "" {
+		safeFilename = fmt.Sprintf("attachment_%d%s", time.Now().UnixNano(), ".bin")
+	}
+
+	// Create full path
+	outputPath := filepath.Join(outputDir, safeFilename)
+
+	// Check if file already exists, append number if it does
+	outputPath = u_io.EnsureUniqueFilename(outputPath)
+
+	// Write file
+	if err := os.WriteFile(outputPath, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write attachment file: %w", err)
+	}
+
+	logger.Debug("saved attachment", "filename", safeFilename, "path", outputPath)
+	return outputPath, nil
+}
 
 // ExtractAttachmentsMultipart extracts attachments from multipart content
 func ExtractAttachmentsMultipart(content []byte, boundary string, logger *slog.Logger) ([]parsemail.Attachment, error) {
