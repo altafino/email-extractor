@@ -306,10 +306,64 @@ func (c *POP3Client) extractAttachmentsMultipart(content []byte, boundary string
 	return handleMultipart(content, boundary)
 }
 
+// Helper function to extract header value trying multiple header names
+func extractHeaderValue(headers map[string][]string, headerNames []string) string {
+	for _, name := range headerNames {
+		if values, ok := headers[name]; ok && len(values) > 0 {
+			return values[0]
+		}
+	}
+	return ""
+}
+
+// Helper function to extract and parse date from headers
+func extractDateValue(headers map[string][]string, logger *slog.Logger) time.Time {
+	// Try multiple header names for date
+	dateHeaderNames := []string{"Date", "DATE", "date", "Sent", "SENT", "sent"}
+	dateStr := extractHeaderValue(headers, dateHeaderNames)
+
+	if dateStr != "" {
+		// Try various date formats
+		dateFormats := []string{
+			time.RFC1123Z,
+			time.RFC1123,
+			time.RFC822Z,
+			time.RFC822,
+			"Mon, 2 Jan 2006 15:04:05 -0700",
+			"2 Jan 2006 15:04:05 -0700",
+			"Mon, 2 Jan 2006 15:04:05 MST",
+			"Mon, 2 Jan 2006 15:04:05",
+		}
+
+		for _, format := range dateFormats {
+			if parsedTime, err := time.Parse(format, dateStr); err == nil {
+				logger.Debug("successfully parsed date",
+					"date_string", dateStr,
+					"format", format,
+					"parsed_time", parsedTime)
+				return parsedTime
+			}
+		}
+
+		logger.Debug("failed to parse date with any format", "date_string", dateStr)
+	} else {
+		logger.Debug("no date header found")
+	}
+
+	// If we can't parse the date, use current time
+	return time.Now().UTC()
+}
+
+// Improve the parseHeaders function to be more robust
 func parseHeaders(r io.Reader) (map[string][]string, error) {
 	headers := make(map[string][]string)
 	scanner := bufio.NewScanner(r)
 	var currentKey string
+	var currentValue string
+
+	// Increase scanner buffer for large headers
+	buf := make([]byte, 0, 64*1024) // 64KB buffer
+	scanner.Buffer(buf, 1024*1024)  // Allow up to 1MB per line
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -317,23 +371,47 @@ func parseHeaders(r io.Reader) (map[string][]string, error) {
 			break // End of headers
 		}
 
+		// Check if this is a continuation line
 		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
 			// Continuation of previous header
 			if currentKey != "" {
-				headers[currentKey][len(headers[currentKey])-1] += " " + strings.TrimSpace(line)
+				currentValue += " " + strings.TrimSpace(line)
+				// Update the last value for this key
+				if len(headers[currentKey]) > 0 {
+					headers[currentKey][len(headers[currentKey])-1] = currentValue
+				}
 			}
 			continue
 		}
 
+		// New header line
 		if idx := strings.Index(line, ":"); idx != -1 {
-			key := strings.TrimSpace(line[:idx])
-			value := strings.TrimSpace(line[idx+1:])
-			currentKey = key
-			headers[key] = append(headers[key], value)
+			// Save previous header if there was one
+			if currentKey != "" && currentValue != "" {
+				headers[currentKey] = append(headers[currentKey], currentValue)
+			}
+
+			// Start new header
+			currentKey = strings.TrimSpace(line[:idx])
+			currentValue = strings.TrimSpace(line[idx+1:])
+
+			// Add to headers map
+			if _, exists := headers[currentKey]; !exists {
+				headers[currentKey] = []string{}
+			}
 		}
 	}
 
-	return headers, scanner.Err()
+	// Add the last header if there is one
+	if currentKey != "" && currentValue != "" {
+		headers[currentKey] = append(headers[currentKey], currentValue)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return headers, fmt.Errorf("error scanning headers: %w", err)
+	}
+
+	return headers, nil
 }
 
 // Simplify the function to only use the message content
@@ -394,7 +472,6 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 	} else {
 		defer errorLogger.Close()
 
-		
 	}
 
 	conn, err := c.Connect(req.Config)
@@ -510,6 +587,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		// Buffer the message body for multiple reads
 		buf := bytes.NewBuffer([]byte{})
 		_, err = io.Copy(buf, msgReader.Body)
+
 		if err != nil {
 			c.logger.Debug("failed to buffer message", "error", err, "message_id", popMsg.ID)
 			result.Status = "error"
@@ -537,6 +615,41 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		// Get message content
 		content := buf.Bytes()
 
+		// Extract basic email information for error logging
+		var sender, subject string
+		var sentAt time.Time
+
+		headers, err := parseHeaders(bytes.NewReader(content))
+		if err != nil {
+			c.logger.Warn("failed to parse headers", "error", err)
+			// Continue with empty headers map
+			headers = make(map[string][]string)
+		}
+
+		// Try multiple header variations for From field
+		sender = extractHeaderValue(headers, []string{"From", "FROM", "from", "Sender", "SENDER", "sender"})
+		c.logger.Debug("extracted sender", "sender", sender, "raw_headers", headers)
+
+		// Try multiple header variations for Subject field
+		subject = extractHeaderValue(headers, []string{"Subject", "SUBJECT", "subject"})
+		if subject != "" {
+			result.Subject = subject
+			c.logger.Debug("extracted subject", "subject", subject)
+		}
+
+		// Try to parse date with multiple formats and header names
+		sentAt = extractDateValue(headers, c.logger)
+
+		c.logger.Debug("email info", "sender", sender, "subject", subject, "sent_at", sentAt)
+		if sender == "" {
+			sender = "unknown"
+			c.logger.Debug("using default sender", "sender", sender)
+		}
+		if subject == "" {
+			subject = "No Subject"
+			c.logger.Debug("using default subject", "subject", subject)
+		}
+
 		// Generate a unique message ID
 		uniqueID := c.generateUniqueMessageID(content)
 
@@ -557,35 +670,6 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 				c.logger.Debug("skipping already downloaded message", "message_id", uniqueID)
 				continue // Skip this message
 			}
-		}
-
-		// Extract basic email information for error logging
-		var sender, subject string
-		var sentAt time.Time
-
-		headers, _ := parseHeaders(bytes.NewReader(content))
-		if from, ok := headers["From"]; ok && len(from) > 0 {
-			sender = from[0]
-		}
-		if subj, ok := headers["Subject"]; ok && len(subj) > 0 {
-			subject = subj[0]
-			result.Subject = subject
-		}
-		if date, ok := headers["Date"]; ok && len(date) > 0 {
-			if parsedTime, err := time.Parse(time.RFC1123Z, date[0]); err == nil {
-				sentAt = parsedTime
-			} else if parsedTime, err := time.Parse(time.RFC1123, date[0]); err == nil {
-				sentAt = parsedTime
-			} else if parsedTime, err := time.Parse(time.RFC822Z, date[0]); err == nil {
-				sentAt = parsedTime
-			} else if parsedTime, err := time.Parse(time.RFC822, date[0]); err == nil {
-				sentAt = parsedTime
-			} else {
-				// If we can't parse the date, use current time
-				sentAt = time.Now().UTC()
-			}
-		} else {
-			sentAt = time.Now().UTC()
 		}
 
 		// Check if we need to add headers
@@ -851,6 +935,9 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 						Server:    req.Config.Server,
 						Username:  req.Config.Username,
 						MessageID: fmt.Sprintf("%d", popMsg.ID),
+						Sender:    sender,
+						Subject:   subject,
+						SentAt:    sentAt,
 						ErrorTime: time.Now().UTC(),
 						ErrorType: "parse_email",
 						ErrorMsg:  fmt.Sprintf("failed to parse email: %v", err),
