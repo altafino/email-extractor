@@ -21,6 +21,7 @@ import (
 	"github.com/DusanKasan/parsemail"
 	"github.com/altafino/email-extractor/internal/errorlog"
 	"github.com/altafino/email-extractor/internal/models"
+	"github.com/altafino/email-extractor/internal/email/parser"
 	"github.com/altafino/email-extractor/internal/tracking"
 	"github.com/altafino/email-extractor/internal/types"
 	"github.com/jhillyerd/enmime/mediatype"
@@ -619,7 +620,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		var sender, subject string
 		var sentAt time.Time
 
-		headers, err := parseHeaders(bytes.NewReader(content))
+		headers, err := parser.ParseHeaders(bytes.NewReader(content))
 		if err != nil {
 			c.logger.Warn("failed to parse headers", "error", err)
 			// Continue with empty headers map
@@ -627,18 +628,18 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		}
 
 		// Try multiple header variations for From field
-		sender = extractHeaderValue(headers, []string{"From", "FROM", "from", "Sender", "SENDER", "sender"})
+		sender = parser.ExtractHeaderValue(headers, []string{"From", "FROM", "from", "Sender", "SENDER", "sender"})
 		c.logger.Debug("extracted sender", "sender", sender, "raw_headers", headers)
 
 		// Try multiple header variations for Subject field
-		subject = extractHeaderValue(headers, []string{"Subject", "SUBJECT", "subject"})
+		subject = parser.ExtractHeaderValue(headers, []string{"Subject", "SUBJECT", "subject"})
 		if subject != "" {
 			result.Subject = subject
 			c.logger.Debug("extracted subject", "subject", subject)
 		}
 
 		// Try to parse date with multiple formats and header names
-		sentAt = extractDateValue(headers, c.logger)
+		sentAt = parser.ExtractDateValue(headers, c.logger)
 
 		c.logger.Debug("email info", "sender", sender, "subject", subject, "sent_at", sentAt)
 		if sender == "" {
@@ -651,7 +652,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		}
 
 		// Generate a unique message ID
-		uniqueID := c.generateUniqueMessageID(content)
+		uniqueID := parser.GenerateUniqueMessageID(content)
 
 		// Check if this message has already been downloaded using the unique ID
 		if trackingManager != nil && c.cfg.Email.Tracking.TrackDownloaded {
@@ -676,23 +677,11 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		var boundary string
 
 		// Try to find the actual boundary in the content
-		lines := bytes.Split(content[:min(1000, len(content))], []byte("\n"))
-		for _, line := range lines {
-			if bytes.Contains(bytes.ToLower(line), []byte("boundary=")) {
-				if idx := bytes.Index(line, []byte("boundary=")); idx != -1 {
-					boundary = string(bytes.Trim(line[idx+9:], `"' `))
-					// Sometimes boundary is part of Content-Type, extract just the boundary part
-					if idx := strings.Index(boundary, ";"); idx != -1 {
-						boundary = strings.Trim(boundary[:idx], `"' `)
-					}
-					break
-				}
-			}
-		}
+		boundary = parser.DetectBoundary(content, 1000)
 
 		if boundary == "" {
 			// Try to find boundary marker directly
-			for _, line := range lines {
+			for _, line := range bytes.Split(content[:min(1000, len(content))], []byte("\n")) {
 				if bytes.HasPrefix(bytes.TrimSpace(line), []byte("--")) {
 					potentialBoundary := string(bytes.TrimSpace(line)[2:])
 					// Verify this boundary appears multiple times
@@ -776,7 +765,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 
 		// Extract Content-Type and boundary from headers
 		var attachments []parsemail.Attachment
-		headers, _ = parseHeaders(bytes.NewReader(content))
+		headers, _ = parser.ParseHeaders(bytes.NewReader(content))
 		if contentType, ok := headers["Content-Type"]; ok && len(contentType) > 0 {
 			// Clean up Content-Type header
 			cleanContentType := contentType[0]
@@ -923,7 +912,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 
 		// If multipart parsing failed, try parsemail as fallback
 		if len(attachments) == 0 {
-			email, err := c.parseEmail(content)
+			email, err := parser.ParseEmail(content, c.logger)
 			if err != nil {
 				result.Status = "error"
 				result.ErrorMessage = fmt.Sprintf("failed to parse email: %v", err)
