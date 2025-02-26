@@ -493,7 +493,7 @@ func GenerateFilename(filename string, timestamp time.Time, pattern string) stri
 	result = strings.ReplaceAll(result, "{date}", timestamp.Format("2006-01-02"))
 	result = strings.ReplaceAll(result, "{time}", timestamp.Format("150405"))
 	result = strings.ReplaceAll(result, "{datetime}", timestamp.Format("20060102_150405"))
-	result = strings.ReplaceAll(result, "{timestamp}", fmt.Sprintf("%d", timestamp.Unix()))
+	result = strings.ReplaceAll(result, "{unixtime}", fmt.Sprintf("%d", timestamp.UnixNano()))
 	result = strings.ReplaceAll(result, "{random}", fmt.Sprintf("%d", rand.Intn(10000)))
 
 	// If the pattern doesn't include the extension, add it
