@@ -394,21 +394,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 	} else {
 		defer errorLogger.Close()
 
-		// Test error logging
-		testErr := errorlog.EmailError{
-			Protocol:  req.Config.Protocol,
-			Server:    req.Config.Server,
-			Username:  req.Config.Username,
-			ErrorTime: time.Now().UTC(),
-			ErrorType: "test_error",
-			ErrorMsg:  "This is a test error to verify error logging is working",
-		}
-
-		if logErr := errorLogger.LogError(testErr); logErr != nil {
-			c.logger.Error("test error logging failed", "error", logErr)
-		} else {
-			c.logger.Info("test error logging succeeded")
-		}
+		
 	}
 
 	conn, err := c.Connect(req.Config)
