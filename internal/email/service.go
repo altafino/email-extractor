@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/altafino/email-extractor/internal/errorlog"
 	"github.com/altafino/email-extractor/internal/models"
-	"github.com/altafino/email-extractor/internal/types"
 	"github.com/altafino/email-extractor/internal/tracking"
+	"github.com/altafino/email-extractor/internal/types"
 )
 
 type Service struct {
@@ -42,10 +46,50 @@ func (s *Service) ProcessEmails() error {
 			// Continue without tracking cleanup
 		} else {
 			defer trackingManager.Close()
-			
+
 			// Clean up old records
 			if err := trackingManager.CleanupOldRecords(); err != nil {
 				s.logger.Warn("failed to clean up old tracking records", "error", err)
+				// Continue processing
+			}
+		}
+	}
+
+	// Create error logging manager for the entire process
+	var errorLogger *errorlog.Manager
+	if s.cfg.Email.ErrorLogging.Enabled {
+		// Ensure directory exists
+		if err := os.MkdirAll(s.cfg.Email.ErrorLogging.StoragePath, 0755); err != nil {
+			s.logger.Warn("failed to create error log directory",
+				"path", s.cfg.Email.ErrorLogging.StoragePath,
+				"error", err)
+		} else {
+			// Check if directory is writable
+			testFile := filepath.Join(s.cfg.Email.ErrorLogging.StoragePath, ".test_write")
+			if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+				s.logger.Error("error log directory is not writable",
+					"path", s.cfg.Email.ErrorLogging.StoragePath,
+					"error", err)
+			} else {
+				os.Remove(testFile) // Clean up test file
+				s.logger.Debug("error log directory is writable",
+					"path", s.cfg.Email.ErrorLogging.StoragePath)
+			}
+		}
+
+		var err error
+		errorLogger, err = errorlog.NewManager(s.cfg, s.logger)
+		if err != nil {
+			s.logger.Warn("failed to initialize error logger for cleanup",
+				"error", err,
+				"config", s.cfg.Email.ErrorLogging)
+			// Continue without error log cleanup
+		} else {
+			defer errorLogger.Close()
+
+			// Clean up old error logs
+			if err := errorLogger.CleanupOldErrors(); err != nil {
+				s.logger.Warn("failed to clean up old error logs", "error", err)
 				// Continue processing
 			}
 		}
@@ -115,7 +159,22 @@ func (s *Service) ProcessEmails() error {
 		})
 
 		if err != nil {
-			return fmt.Errorf("failed to download emails: %w", err)
+			errMsg := fmt.Sprintf("failed to download emails: %v", err)
+			s.logger.Error(errMsg)
+
+			// Log the error
+			if errorLogger != nil {
+				errorLogger.LogError(errorlog.EmailError{
+					Protocol:  "pop3",
+					Server:    emailCfg.Server,
+					Username:  emailCfg.Username,
+					ErrorTime: time.Now().UTC(),
+					ErrorType: "download_emails",
+					ErrorMsg:  errMsg,
+				})
+			}
+
+			return fmt.Errorf(errMsg)
 		}
 
 		// Log results
@@ -125,6 +184,21 @@ func (s *Service) ProcessEmails() error {
 					"message_id", result.MessageID,
 					"error", result.ErrorMessage,
 				)
+
+				// Log the error
+				if errorLogger != nil {
+					errorLogger.LogError(errorlog.EmailError{
+						Protocol:  "pop3",
+						Server:    emailCfg.Server,
+						Username:  emailCfg.Username,
+						MessageID: result.MessageID,
+						Subject:   result.Subject,
+						ErrorTime: time.Now().UTC(),
+						ErrorType: "process_email",
+						ErrorMsg:  result.ErrorMessage,
+					})
+				}
+
 				continue
 			}
 

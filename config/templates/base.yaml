@@ -88,6 +88,12 @@ email:
     retention_days: 30
     tracking_format: "json"
     track_downloaded: true
+  error_logging:
+    enabled: true
+    storage_type: "file"
+    storage_path: "/data/error_logs"
+    retention_days: 30
+    log_raw_message: false
 
 security:
   allowed_ips:

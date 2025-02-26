@@ -97,6 +97,13 @@ type Config struct {
 			TrackingFormat  string `yaml:"tracking_format"`  // "json" or "csv"
 			TrackDownloaded bool   `yaml:"track_downloaded"` // Whether to track and skip already downloaded emails
 		} `yaml:"tracking"`
+		ErrorLogging struct {
+			Enabled       bool   `yaml:"enabled"`         // Whether error logging is enabled
+			StorageType   string `yaml:"storage_type"`    // "file" or "database"
+			StoragePath   string `yaml:"storage_path"`    // Path for file-based error logs
+			RetentionDays int    `yaml:"retention_days"`  // How long to keep error logs
+			LogRawMessage bool   `yaml:"log_raw_message"` // Whether to include raw message content in logs
+		} `yaml:"error_logging"`
 	} `yaml:"email"`
 
 	Security struct {

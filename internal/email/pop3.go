@@ -12,16 +12,18 @@ import (
 	"mime"
 	"mime/quotedprintable"
 	"net/http"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/jhillyerd/enmime/mediatype"
 	"github.com/DusanKasan/parsemail"
+	"github.com/altafino/email-extractor/internal/errorlog"
 	"github.com/altafino/email-extractor/internal/models"
 	"github.com/altafino/email-extractor/internal/tracking"
 	"github.com/altafino/email-extractor/internal/types"
+	"github.com/jhillyerd/enmime/mediatype"
 	"github.com/knadh/go-pop3"
 )
 
@@ -45,26 +47,24 @@ var mimeToExt = map[string]string{
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   ".docx",
 	"application/vnd.ms-powerpoint":                                             ".ppt",
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
-	"text/plain":                   ".txt",
-	"text/csv":                     ".csv",
-	"application/zip":              ".zip",
-	"application/x-zip-compressed": ".zip",
-	"application/x-rar-compressed": ".rar",
-	"application/x-7z-compressed":  ".7z",
-	"application/rtf":              ".rtf",
-	"application/octet-stream":     ".bin",
-	"application/x-compressed":     ".tar",
-	"application/x-gzip":           ".gz",
-	"application/x-bzip2":          ".bz2",
-	"application/x-tar":            ".tar",
+	"text/plain":                    ".txt",
+	"text/csv":                      ".csv",
+	"application/zip":               ".zip",
+	"application/x-zip-compressed":  ".zip",
+	"application/x-rar-compressed":  ".rar",
+	"application/x-7z-compressed":   ".7z",
+	"application/rtf":               ".rtf",
+	"application/octet-stream":      ".bin",
+	"application/x-compressed":      ".tar",
+	"application/x-gzip":            ".gz",
+	"application/x-bzip2":           ".bz2",
+	"application/x-tar":             ".tar",
 	"application/x-7zip-compressed": ".7z",
-	"application/x-compressed-tar": ".tar.gz",
-	"application/x-compressed-zip": ".zip.gz",
-	"application/x-compressed-bz2": ".bz2.gz",
-	"application/x-compressed-7z": ".7z.gz",
-	"application/x-compressed-rar": ".rar.gz",
-	
-	
+	"application/x-compressed-tar":  ".tar.gz",
+	"application/x-compressed-zip":  ".zip.gz",
+	"application/x-compressed-bz2":  ".bz2.gz",
+	"application/x-compressed-7z":   ".7z.gz",
+	"application/x-compressed-rar":  ".rar.gz",
 }
 
 func NewPOP3Client(cfg *types.Config, logger *slog.Logger) *POP3Client {
@@ -202,7 +202,7 @@ func (c *POP3Client) extractAttachmentsMultipart(content []byte, boundary string
 			}
 
 			//mediaType, params, err := mime.ParseMediaType(contentType)
-			mediaType, params,invalidParams, err := mediatype.Parse(contentType)
+			mediaType, params, invalidParams, err := mediatype.Parse(contentType)
 			c.logger.Debug("mediaType", "mediaType", mediaType, "params", params, "invalidParams", invalidParams, "err", err)
 			if err == nil {
 				// Handle nested multipart
@@ -380,8 +380,50 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		defer trackingManager.Close()
 	}
 
+	// Create error logging manager
+	c.logger.Debug("initializing error logger",
+		"enabled", c.cfg.Email.ErrorLogging.Enabled,
+		"storage_path", c.cfg.Email.ErrorLogging.StoragePath)
+
+	errorLogger, err := errorlog.NewManager(c.cfg, c.logger)
+	if err != nil {
+		c.logger.Error("failed to initialize error logger",
+			"error", err,
+			"config", c.cfg.Email.ErrorLogging)
+		// Continue without error logging if it fails
+	} else {
+		defer errorLogger.Close()
+
+		// Test error logging
+		testErr := errorlog.EmailError{
+			Protocol:  req.Config.Protocol,
+			Server:    req.Config.Server,
+			Username:  req.Config.Username,
+			ErrorTime: time.Now().UTC(),
+			ErrorType: "test_error",
+			ErrorMsg:  "This is a test error to verify error logging is working",
+		}
+
+		if logErr := errorLogger.LogError(testErr); logErr != nil {
+			c.logger.Error("test error logging failed", "error", logErr)
+		} else {
+			c.logger.Info("test error logging succeeded")
+		}
+	}
+
 	conn, err := c.Connect(req.Config)
 	if err != nil {
+		// Log connection error
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  req.Config.Protocol,
+				Server:    req.Config.Server,
+				Username:  req.Config.Username,
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "connection",
+				ErrorMsg:  fmt.Sprintf("failed to connect: %v", err),
+			})
+		}
 		return nil, err
 	}
 	defer conn.Quit()
@@ -389,6 +431,17 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 	// Get message count
 	count, size, err := conn.Stat()
 	if err != nil {
+		// Log stat error
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  req.Config.Protocol,
+				Server:    req.Config.Server,
+				Username:  req.Config.Username,
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "mailbox_stats",
+				ErrorMsg:  fmt.Sprintf("failed to get mailbox stats: %v", err),
+			})
+		}
 		return nil, fmt.Errorf("failed to get mailbox stats: %w", err)
 	}
 
@@ -402,6 +455,17 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 	// Get list of all messages
 	msgList, err := conn.List(0)
 	if err != nil {
+		// Log list error
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  req.Config.Protocol,
+				Server:    req.Config.Server,
+				Username:  req.Config.Username,
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "list_messages",
+				ErrorMsg:  fmt.Sprintf("failed to list messages: %v", err),
+			})
+		}
 		return nil, fmt.Errorf("failed to list messages: %w", err)
 	}
 
@@ -437,6 +501,20 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 			c.logger.Debug("failed to retrieve message", "error", err, "message_id", popMsg.ID)
 			result.Status = "error"
 			result.ErrorMessage = fmt.Sprintf("failed to retrieve message: %v", err)
+
+			// Log the error
+			if errorLogger != nil {
+				errorLogger.LogError(errorlog.EmailError{
+					Protocol:  req.Config.Protocol,
+					Server:    req.Config.Server,
+					Username:  req.Config.Username,
+					MessageID: fmt.Sprintf("%d", popMsg.ID),
+					ErrorTime: time.Now().UTC(),
+					ErrorType: "retrieve_message",
+					ErrorMsg:  fmt.Sprintf("failed to retrieve message: %v", err),
+				})
+			}
+
 			results = append(results, result)
 			continue
 		}
@@ -450,6 +528,20 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 			c.logger.Debug("failed to buffer message", "error", err, "message_id", popMsg.ID)
 			result.Status = "error"
 			result.ErrorMessage = fmt.Sprintf("failed to buffer message: %v", err)
+
+			// Log the error
+			if errorLogger != nil {
+				errorLogger.LogError(errorlog.EmailError{
+					Protocol:  req.Config.Protocol,
+					Server:    req.Config.Server,
+					Username:  req.Config.Username,
+					MessageID: fmt.Sprintf("%d", popMsg.ID),
+					ErrorTime: time.Now().UTC(),
+					ErrorType: "buffer_message",
+					ErrorMsg:  fmt.Sprintf("failed to buffer message: %v", err),
+				})
+			}
+
 			results = append(results, result)
 			continue
 		}
@@ -479,6 +571,35 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 				c.logger.Debug("skipping already downloaded message", "message_id", uniqueID)
 				continue // Skip this message
 			}
+		}
+
+		// Extract basic email information for error logging
+		var sender, subject string
+		var sentAt time.Time
+
+		headers, _ := parseHeaders(bytes.NewReader(content))
+		if from, ok := headers["From"]; ok && len(from) > 0 {
+			sender = from[0]
+		}
+		if subj, ok := headers["Subject"]; ok && len(subj) > 0 {
+			subject = subj[0]
+			result.Subject = subject
+		}
+		if date, ok := headers["Date"]; ok && len(date) > 0 {
+			if parsedTime, err := time.Parse(time.RFC1123Z, date[0]); err == nil {
+				sentAt = parsedTime
+			} else if parsedTime, err := time.Parse(time.RFC1123, date[0]); err == nil {
+				sentAt = parsedTime
+			} else if parsedTime, err := time.Parse(time.RFC822Z, date[0]); err == nil {
+				sentAt = parsedTime
+			} else if parsedTime, err := time.Parse(time.RFC822, date[0]); err == nil {
+				sentAt = parsedTime
+			} else {
+				// If we can't parse the date, use current time
+				sentAt = time.Now().UTC()
+			}
+		} else {
+			sentAt = time.Now().UTC()
 		}
 
 		// Check if we need to add headers
@@ -585,7 +706,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 
 		// Extract Content-Type and boundary from headers
 		var attachments []parsemail.Attachment
-		headers, _ := parseHeaders(bytes.NewReader(content))
+		headers, _ = parseHeaders(bytes.NewReader(content))
 		if contentType, ok := headers["Content-Type"]; ok && len(contentType) > 0 {
 			// Clean up Content-Type header
 			cleanContentType := contentType[0]
@@ -732,11 +853,26 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 
 		// If multipart parsing failed, try parsemail as fallback
 		if len(attachments) == 0 {
-			email, err := parsemail.Parse(bytes.NewReader(content))
+			email, err := c.parseEmail(content)
 			if err != nil {
-				c.logger.Debug("failed to parse email", "error", err, "message_id", popMsg.ID)
 				result.Status = "error"
 				result.ErrorMessage = fmt.Sprintf("failed to parse email: %v", err)
+
+				// Log the error
+				if errorLogger != nil {
+					errorLogger.LogError(errorlog.EmailError{
+						Protocol:  req.Config.Protocol,
+						Server:    req.Config.Server,
+						Username:  req.Config.Username,
+						MessageID: fmt.Sprintf("%d", popMsg.ID),
+						ErrorTime: time.Now().UTC(),
+						ErrorType: "parse_email",
+						ErrorMsg:  fmt.Sprintf("failed to parse email: %v", err),
+						// Include a portion of the raw message for debugging if configured
+						RawMessage: c.getRawMessageSample(content),
+					})
+				}
+
 				results = append(results, result)
 				continue
 			}
@@ -758,21 +894,58 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		// For now, we'll leave it blank and just use the message ID for tracking
 
 		// Process attachments
+		var attachmentErrors []string
 		for _, a := range attachments {
 			if c.isAllowedAttachment(a.Filename) {
 				content, err := io.ReadAll(a.Data)
 				if err != nil {
+					errMsg := fmt.Sprintf("failed to read attachment data: %v", err)
 					c.logger.Error("failed to read attachment data",
 						"filename", a.Filename,
 						"error", err,
 					)
+					attachmentErrors = append(attachmentErrors, errMsg)
+
+					// Log attachment error
+					if errorLogger != nil {
+						errorLogger.LogError(errorlog.EmailError{
+							Protocol:  req.Config.Protocol,
+							Server:    req.Config.Server,
+							Username:  req.Config.Username,
+							MessageID: uniqueID,
+							Sender:    sender,
+							Subject:   subject,
+							SentAt:    sentAt,
+							ErrorTime: time.Now().UTC(),
+							ErrorType: "attachment_read",
+							ErrorMsg:  errMsg,
+						})
+					}
 					continue
 				}
 				if err := c.saveAttachment(a.Filename, content); err != nil {
+					errMsg := fmt.Sprintf("failed to save attachment: %v", err)
 					c.logger.Error("failed to save attachment",
 						"filename", a.Filename,
 						"error", err,
 					)
+					attachmentErrors = append(attachmentErrors, errMsg)
+
+					// Log attachment error
+					if errorLogger != nil {
+						errorLogger.LogError(errorlog.EmailError{
+							Protocol:  req.Config.Protocol,
+							Server:    req.Config.Server,
+							Username:  req.Config.Username,
+							MessageID: uniqueID,
+							Sender:    sender,
+							Subject:   subject,
+							SentAt:    sentAt,
+							ErrorTime: time.Now().UTC(),
+							ErrorType: "attachment_save",
+							ErrorMsg:  errMsg,
+						})
+					}
 					continue
 				}
 				result.Attachments = append(result.Attachments, a.Filename)
@@ -782,7 +955,13 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		if len(result.Attachments) > 0 {
 			result.Status = "completed"
 		} else {
-			result.Status = "no_attachments"
+			// If we had attachment errors but no successful attachments
+			if len(attachmentErrors) > 0 {
+				result.Status = "error"
+				result.ErrorMessage = strings.Join(attachmentErrors, "; ")
+			} else {
+				result.Status = "no_attachments"
+			}
 		}
 
 		results = append(results, result)
@@ -811,6 +990,22 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 					"message_id", popMsg.ID,
 					"error", err,
 				)
+
+				// Log deletion error
+				if errorLogger != nil {
+					errorLogger.LogError(errorlog.EmailError{
+						Protocol:  req.Config.Protocol,
+						Server:    req.Config.Server,
+						Username:  req.Config.Username,
+						MessageID: uniqueID,
+						Sender:    sender,
+						Subject:   subject,
+						SentAt:    sentAt,
+						ErrorTime: time.Now().UTC(),
+						ErrorType: "delete_message",
+						ErrorMsg:  fmt.Sprintf("failed to delete message: %v", err),
+					})
+				}
 			}
 		}
 	}
@@ -1084,4 +1279,213 @@ func processHTML(htmlContent []byte) []parsemail.Attachment {
 		}
 	}
 	return attachments
+}
+
+// Update the parseEmail method to better handle MIME parsing errors
+func (c *POP3Client) parseEmail(content []byte) (parsemail.Email, error) {
+	var email parsemail.Email
+	var err error
+
+	// Try to parse the email
+	email, err = parsemail.Parse(bytes.NewReader(content))
+	if err != nil {
+		// Check for specific error types
+		if strings.Contains(err.Error(), "multipart: NextPart: EOF") {
+			c.logger.Debug("handling multipart EOF error, attempting fallback parsing")
+			// Try fallback parsing method for malformed multipart messages
+			return c.parseEmailFallback(content)
+		} else if strings.Contains(err.Error(), "mime: invalid media parameter") {
+			c.logger.Debug("handling invalid media parameter error, attempting fallback parsing")
+			// Try fallback parsing method for invalid MIME parameters
+			return c.parseEmailFallback(content)
+		}
+
+		return email, fmt.Errorf("failed to parse email: %w", err)
+	}
+
+	return email, nil
+}
+
+// Fix the parseEmailFallback method to use the correct types
+func (c *POP3Client) parseEmailFallback(content []byte) (parsemail.Email, error) {
+	var email parsemail.Email
+
+	// Extract headers manually
+	headers, _ := parseHeaders(bytes.NewReader(content))
+
+	// Set basic email properties from headers
+	if from, ok := headers["From"]; ok && len(from) > 0 {
+		// For From field, create a slice with a single address
+		fromAddr, err := mail.ParseAddress(from[0])
+		if err == nil {
+			email.From = []*mail.Address{fromAddr}
+		} else {
+			// Fallback to just setting the address string
+			email.From = []*mail.Address{&mail.Address{Address: from[0]}}
+		}
+	}
+
+	if to, ok := headers["To"]; ok && len(to) > 0 {
+		// For To field, create a slice of addresses
+		var toAddrs []*mail.Address
+		toAddr, err := mail.ParseAddress(to[0])
+		if err == nil {
+			toAddrs = append(toAddrs, toAddr)
+		} else {
+			toAddrs = append(toAddrs, &mail.Address{Address: to[0]})
+		}
+		email.To = toAddrs
+	}
+
+	if subject, ok := headers["Subject"]; ok && len(subject) > 0 {
+		email.Subject = subject[0]
+	}
+
+	if date, ok := headers["Date"]; ok && len(date) > 0 {
+		// Try various date formats
+		for _, format := range []string{
+			time.RFC1123Z,
+			time.RFC1123,
+			time.RFC822Z,
+			time.RFC822,
+			"Mon, 2 Jan 2006 15:04:05 -0700",
+		} {
+			if t, err := time.Parse(format, date[0]); err == nil {
+				email.Date = t
+				break
+			}
+		}
+	}
+
+	// Try to extract attachments directly
+	attachments, err := c.extractAttachmentsDirectly(content, headers)
+	if err != nil {
+		c.logger.Debug("fallback attachment extraction failed", "error", err)
+	}
+
+	email.Attachments = attachments
+
+	return email, nil
+}
+
+// Add a method to extract attachments directly from content
+func (c *POP3Client) extractAttachmentsDirectly(content []byte, headers map[string][]string) ([]parsemail.Attachment, error) {
+	var attachments []parsemail.Attachment
+
+	// Try to find Content-Type and boundary
+	var boundary string
+	if contentType, ok := headers["Content-Type"]; ok && len(contentType) > 0 {
+		if _, params, _, err := mediatype.Parse(contentType[0]); err == nil {
+			if b, ok := params["boundary"]; ok {
+				boundary = b
+			}
+		}
+	}
+
+	if boundary == "" {
+		return nil, fmt.Errorf("no boundary found in Content-Type header")
+	}
+
+	// Split content by boundary
+	parts := bytes.Split(content, []byte("--"+boundary))
+
+	// Skip the first part (usually empty or preamble)
+	for i := 1; i < len(parts); i++ {
+		part := parts[i]
+
+		// Skip the closing boundary
+		if bytes.HasPrefix(part, []byte("--")) {
+			continue
+		}
+
+		// Split header and body
+		headerEnd := bytes.Index(part, []byte("\r\n\r\n"))
+		if headerEnd == -1 {
+			headerEnd = bytes.Index(part, []byte("\n\n"))
+			if headerEnd == -1 {
+				continue // No header/body separator found
+			}
+		}
+
+		headerData := part[:headerEnd]
+		bodyData := part[headerEnd+4:] // Skip the separator
+
+		// Parse part headers
+		partHeaders, _ := parseHeaders(bytes.NewReader(headerData))
+
+		// Check if this is an attachment
+		isAttachment := false
+		filename := ""
+
+		if contentDisp, ok := partHeaders["Content-Disposition"]; ok && len(contentDisp) > 0 {
+			if _, params, _, err := mediatype.Parse(contentDisp[0]); err == nil {
+				if fn, ok := params["filename"]; ok {
+					filename = decodeFilename(fn)
+					isAttachment = true
+				}
+			}
+		}
+
+		// If no filename from disposition, try Content-Type name parameter
+		if !isAttachment {
+			if contentType, ok := partHeaders["Content-Type"]; ok && len(contentType) > 0 {
+				if _, params, _, err := mediatype.Parse(contentType[0]); err == nil {
+					if name, ok := params["name"]; ok {
+						filename = decodeFilename(name)
+						isAttachment = true
+					}
+				}
+			}
+		}
+
+		if isAttachment && filename != "" {
+			// Decode body if needed
+			var decodedBody []byte
+			if encoding, ok := partHeaders["Content-Transfer-Encoding"]; ok && len(encoding) > 0 {
+				switch strings.ToLower(encoding[0]) {
+				case "base64":
+					decoded, err := base64.StdEncoding.DecodeString(string(bodyData))
+					if err == nil {
+						decodedBody = decoded
+					} else {
+						decodedBody = bodyData // Use original if decoding fails
+					}
+				case "quoted-printable":
+					reader := quotedprintable.NewReader(bytes.NewReader(bodyData))
+					decoded, err := io.ReadAll(reader)
+					if err == nil {
+						decodedBody = decoded
+					} else {
+						decodedBody = bodyData // Use original if decoding fails
+					}
+				default:
+					decodedBody = bodyData // No decoding needed
+				}
+			} else {
+				decodedBody = bodyData // No encoding specified
+			}
+
+			attachments = append(attachments, parsemail.Attachment{
+				Filename: filename,
+				Data:     bytes.NewReader(decodedBody),
+			})
+		}
+	}
+
+	return attachments, nil
+}
+
+// Helper to get a sample of the raw message for debugging
+func (c *POP3Client) getRawMessageSample(content []byte) string {
+	if !c.cfg.Email.ErrorLogging.LogRawMessage {
+		return ""
+	}
+
+	// Get the first 1000 bytes or less
+	maxLen := 1000
+	if len(content) < maxLen {
+		maxLen = len(content)
+	}
+
+	return string(content[:maxLen])
 }
