@@ -133,4 +133,40 @@ func (m *Manager) CleanupOldRecords() error {
 		"retention_days", m.cfg.Email.Tracking.RetentionDays)
 
 	return nil
-} 
+}
+
+// MarkEmailDownloaded records a downloaded email with attachment information
+func (m *Manager) MarkEmailDownloaded(protocol, server, username, messageID, sender, subject string, sentAt time.Time, attachmentCount int) error {
+	if !m.cfg.Email.Tracking.Enabled || !m.cfg.Email.Tracking.TrackDownloaded || m.storage == nil {
+		return nil // Tracking is disabled, silently succeed
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record := EmailRecord{
+		MessageID:    messageID,
+		Protocol:     protocol,
+		Server:       server,
+		Username:     username,
+		Subject:      subject,
+		DownloadedAt: time.Now().UTC(),
+		Status:       "downloaded",
+	}
+
+	if err := m.storage.AddRecord(record); err != nil {
+		m.logger.Error("failed to mark email as downloaded",
+			"message_id", messageID,
+			"error", err)
+		return err
+	}
+
+	m.logger.Debug("marked email as downloaded",
+		"message_id", messageID,
+		"protocol", protocol,
+		"server", server,
+		"username", username,
+		"attachments", attachmentCount)
+
+	return nil
+}

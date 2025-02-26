@@ -11,9 +11,6 @@ import (
 	"log/slog"
 	"mime"
 	"mime/quotedprintable"
-	"net/http"
-	"net/mail"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -434,7 +431,6 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		// Continue without error logging if it fails
 	} else {
 		defer errorLogger.Close()
-
 	}
 
 	conn, err := c.Connect(req.Config)
@@ -635,292 +631,52 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 			}
 		}
 
-		// Check if we need to add headers
-		var boundary string
+		// Process email content to extract attachments
+		content, _, attachments, err := parser.ProcessEmailContent(content, fmt.Sprintf("%d", popMsg.ID), c.logger)
+		if err != nil {
+			c.logger.Debug("failed to process email content", "error", err, "message_id", popMsg.ID)
+			result.Status = "error"
+			result.ErrorMessage = fmt.Sprintf("failed to process email content: %v", err)
 
-		// Try to find the actual boundary in the content
-		boundary = parser.DetectBoundary(content, 1000)
-
-		if boundary == "" {
-			// Try to find boundary marker directly
-			for _, line := range bytes.Split(content[:min(1000, len(content))], []byte("\n")) {
-				if bytes.HasPrefix(bytes.TrimSpace(line), []byte("--")) {
-					potentialBoundary := string(bytes.TrimSpace(line)[2:])
-					// Verify this boundary appears multiple times
-					if bytes.Count(content, []byte("--"+potentialBoundary)) > 1 {
-						boundary = potentialBoundary
-						break
-					}
-				}
-			}
-		}
-
-		if !bytes.Contains(content[:min(100, len(content))], []byte("From:")) {
-			// Add basic email headers if they're missing
-			boundaryToUse := boundary
-			if boundaryToUse == "" {
-				boundaryToUse = fmt.Sprintf("_%x", time.Now().UnixNano())
-			} else {
-				// Clean up boundary - remove any extra quotes or invalid characters
-				boundaryToUse = strings.Trim(boundaryToUse, `"'`)
-				boundaryToUse = strings.TrimSuffix(boundaryToUse, `\`)
-				boundaryToUse = strings.TrimSpace(boundaryToUse)
-			}
-			headers := []byte("From: unknown@example.com\r\n" +
-				"To: unknown@example.com\r\n" +
-				"Subject: No Subject\r\n" +
-				"MIME-Version: 1.0\r\n" +
-				fmt.Sprintf("Content-Type: multipart/mixed; boundary=%s\r\n\r\n", boundaryToUse))
-			content = append(headers, content...)
-
-			// Fix common Brazilian email client boundary formats
-			content = bytes.ReplaceAll(content,
-				[]byte(`boundary="_000_`),
-				[]byte(`boundary="`))
-			content = bytes.ReplaceAll(content,
-				[]byte(`_LAMP_"`),
-				[]byte(`"`))
-			content = bytes.ReplaceAll(content,
-				[]byte(`boundary="----=_NextPart`),
-				[]byte(`boundary="NextPart`))
-			content = bytes.ReplaceAll(content,
-				[]byte(`boundary="------=_NextPart`),
-				[]byte(`boundary="NextPart`))
-			content = bytes.ReplaceAll(content,
-				[]byte(`boundary="------=_Part`),
-				[]byte(`boundary="Part`))
-
-			// Fix malformed Content-Type headers in the content
-			content = bytes.ReplaceAll(content,
-				[]byte(`boundary=\"`),
-				[]byte(`boundary=`))
-			content = bytes.ReplaceAll(content,
-				[]byte(`\"\r\n`),
-				[]byte(`\r\n`))
-			content = bytes.ReplaceAll(content,
-				[]byte(`boundary==`),
-				[]byte(`boundary=`))
-
-			// Clean up any remaining invalid quotes in boundaries
-			if idx := bytes.Index(content, []byte("boundary=")); idx != -1 {
-				endIdx := bytes.Index(content[idx:], []byte("\r\n"))
-				if endIdx != -1 {
-					headerPart := content[idx : idx+endIdx]
-					cleanHeader := bytes.ReplaceAll(headerPart, []byte(`"`), []byte(``))
-					// Remove any remaining special characters
-					cleanHeader = bytes.Map(func(r rune) rune {
-						if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '=' {
-							return r
-						}
-						return -1
-					}, cleanHeader)
-					copy(content[idx:idx+endIdx], cleanHeader)
-				}
-			}
-		}
-
-		// Log first few bytes of the message to help debug
-		preview := min(len(content), 200)
-		c.logger.Debug("message preview",
-			"message_id", popMsg.ID,
-			"content", string(content[:preview]))
-
-		// Extract Content-Type and boundary from headers
-		var attachments []parsemail.Attachment
-		headers, _ = parser.ParseHeaders(bytes.NewReader(content))
-		if contentType, ok := headers["Content-Type"]; ok && len(contentType) > 0 {
-			// Clean up Content-Type header
-			cleanContentType := contentType[0]
-			// Log raw message preview for debugging
-			previewLen := min(200, len(content))
-			c.logger.Debug("raw message preview",
-				"message_id", popMsg.ID,
-				"preview", string(content[:previewLen]),
-				"total_length", len(content))
-
-			c.logger.Debug("processing email content type",
-				"message_id", popMsg.ID,
-				"raw_content_type", contentType[0],
-				"clean_content_type", cleanContentType)
-
-			// Extract boundary from Content-Type
-			mediaType, params, _, err := mediatype.Parse(cleanContentType)
-			if err != nil {
-				c.logger.Debug("failed to parse media type",
-					"message_id", popMsg.ID,
-					"error", err,
-					"raw_content_type", contentType[0],
-					"clean_content_type", cleanContentType)
-
-				// Try to clean up Content-Type more aggressively for parsing
-				cleanContentType = strings.ReplaceAll(cleanContentType, `"`, "")
-				cleanContentType = strings.ReplaceAll(cleanContentType, `'`, "")
-				cleanContentType = strings.TrimSpace(cleanContentType)
-				// Try parsing again with cleaned content type
-				mediaType, params, _, err = mediatype.Parse(cleanContentType)
-				if err == nil {
-					c.logger.Debug("successfully parsed media type after cleanup",
-						"message_id", popMsg.ID,
-						"clean_content_type", cleanContentType)
-				}
-			}
-
-			if err == nil && strings.HasPrefix(mediaType, "multipart/") {
-				if boundary, ok := params["boundary"]; ok {
-					c.logger.Debug("found boundary in headers",
-						"message_id", popMsg.ID,
-						"boundary", boundary,
-						"media_type", mediaType,
-						"all_params", params)
-
-					// Try to find actual boundary marker in content
-					var actualBoundary string
-					scanner := bufio.NewScanner(bytes.NewReader(content))
-					// Increase scanner buffer for large HTML content
-					buf := make([]byte, 0, 64*1024) // 64KB buffer
-					scanner.Buffer(buf, 1024*1024)  // Allow up to 1MB per line
-
-					var foundBoundaries []string
-					var allLines []string // Store all lines for debugging
-					for scanner.Scan() {
-						line := scanner.Text()
-						allLines = append(allLines, line)
-						if strings.HasPrefix(line, "--") {
-							potentialBoundary := strings.TrimPrefix(line, "--")
-							potentialBoundary = strings.TrimSpace(potentialBoundary)
-							if strings.HasSuffix(potentialBoundary, "--") {
-								potentialBoundary = strings.TrimSuffix(potentialBoundary, "--")
-							}
-							foundBoundaries = append(foundBoundaries, potentialBoundary)
-							c.logger.Debug("found potential boundary",
-								"message_id", popMsg.ID,
-								"boundary", potentialBoundary,
-								"line", line)
-
-							// Count occurrences of this boundary
-							if bytes.Count(content, []byte("--"+potentialBoundary)) > 1 {
-								actualBoundary = potentialBoundary
-								break
-							}
-						}
-					}
-					// Check for scanner errors
-					if err := scanner.Err(); err != nil {
-						c.logger.Debug("scanner error",
-							"message_id", popMsg.ID,
-							"error", err)
-					}
-
-					c.logger.Debug("boundary search results",
-						"message_id", popMsg.ID,
-						"header_boundary", boundary,
-						"found_boundaries", foundBoundaries,
-						"content_lines", allLines[:min(10, len(allLines))], // Show first 10 lines
-						"actual_boundary", actualBoundary)
-
-					// Check if this is a delivery status notification (DSN)
-					isDSN := false
-					for _, line := range allLines {
-						if strings.HasPrefix(line, "Reporting-MTA:") {
-							isDSN = true
-							break
-						}
-					}
-
-					if isDSN {
-						c.logger.Debug("skipping DSN message",
-							"message_id", popMsg.ID)
-						continue
-					}
-
-					// Use actual boundary if found, otherwise use the one from headers
-					if actualBoundary != "" {
-						boundary = actualBoundary
-					}
-
-					// Try our multipart parser with original content
-					// Log first 100 bytes around each boundary marker
-					boundaryMarker := []byte("--" + boundary)
-					idx := bytes.Index(content, boundaryMarker)
-					if idx != -1 {
-						start := max(0, idx-50)
-						end := min(len(content), idx+len(boundaryMarker)+50)
-						c.logger.Debug("boundary context",
-							"message_id", popMsg.ID,
-							"boundary", boundary,
-							"context", string(content[start:end]))
-					}
-					// Also check for boundary with CRLF
-					crlfBoundaryMarker := []byte("\r\n--" + boundary)
-					if bytes.Contains(content, crlfBoundaryMarker) {
-						c.logger.Debug("found boundary with CRLF",
-							"message_id", popMsg.ID,
-							"boundary", boundary)
-					}
-
-					attachments, err = c.extractAttachmentsMultipart(content, boundary)
-					if err != nil {
-						c.logger.Debug("failed to extract attachments with multipart parser",
-							"error", err,
-							"message_id", popMsg.ID,
-							"boundary", boundary,
-							"content_length", len(content),
-							"boundary_count", bytes.Count(content, boundaryMarker),
-							"crlf_boundary_count", bytes.Count(content, crlfBoundaryMarker))
-					}
-				}
-			}
-		}
-
-		// If multipart parsing failed, try parsemail as fallback
-		if len(attachments) == 0 {
-			email, err := parser.ParseEmail(content, c.logger)
-			if err != nil {
-				result.Status = "error"
-				result.ErrorMessage = fmt.Sprintf("failed to parse email: %v", err)
-
-				// Log the error
-				if errorLogger != nil {
-					errorLogger.LogError(errorlog.EmailError{
-						Protocol:  req.Config.Protocol,
-						Server:    req.Config.Server,
-						Username:  req.Config.Username,
-						MessageID: fmt.Sprintf("%d", popMsg.ID),
-						Sender:    sender,
-						Subject:   subject,
-						SentAt:    sentAt,
-						ErrorTime: time.Now().UTC(),
-						ErrorType: "parse_email",
-						ErrorMsg:  fmt.Sprintf("failed to parse email: %v", err),
-						// Include a portion of the raw message for debugging if configured
-						RawMessage: c.getRawMessageSample(content),
-					})
-				}
-
-				results = append(results, result)
-				continue
-			}
-			attachments = append(attachments, email.Attachments...)
-			for _, ef := range email.EmbeddedFiles {
-				attachments = append(attachments, parsemail.Attachment{
-					Filename: fmt.Sprintf("embedded_%d%s", time.Now().UnixNano(), getExtensionFromContentType(ef.ContentType)),
-					Data:     ef.Data,
+			// Log the error
+			if errorLogger != nil {
+				errorLogger.LogError(errorlog.EmailError{
+					Protocol:  req.Config.Protocol,
+					Server:    req.Config.Server,
+					Username:  req.Config.Username,
+					MessageID: fmt.Sprintf("%d", popMsg.ID),
+					Sender:    sender,
+					Subject:   subject,
+					SentAt:    sentAt,
+					ErrorTime: time.Now().UTC(),
+					ErrorType: "process_email",
+					ErrorMsg:  fmt.Sprintf("failed to process email content: %v", err),
+					// Include a portion of the raw message for debugging if configured
+					RawMessage: parser.GetRawMessageSample(content, 1000),
 				})
 			}
+
+			results = append(results, result)
+			continue
 		}
 
 		c.logger.Debug("parsed email",
 			"attachment_count", len(attachments))
 
-		// Extract subject for tracking
-		// We don't have access to the subject directly from popMsg
-		// We'll need to extract it from the parsed email or leave it blank
-		// For now, we'll leave it blank and just use the message ID for tracking
+		// Create attachment config
+		attachmentConfig := parser.AttachmentConfig{
+			StoragePath:       c.cfg.Email.Attachments.StoragePath,
+			MaxSize:           int64(c.cfg.Email.Attachments.MaxSize),
+			AllowedTypes:      c.cfg.Email.Attachments.AllowedTypes,
+			SanitizeFilenames: c.cfg.Email.Attachments.SanitizeFilenames,
+			PreserveStructure: c.cfg.Email.Attachments.PreserveStructure,
+			FilenamePattern:   c.cfg.Email.Attachments.NamingPattern,
+		}
 
 		// Process attachments
 		var attachmentErrors []string
 		for _, a := range attachments {
-			if c.isAllowedAttachment(a.Filename) {
+			if parser.IsAllowedAttachment(a.Filename, c.cfg.Email.Attachments.AllowedTypes, c.logger) {
 				content, err := io.ReadAll(a.Data)
 				if err != nil {
 					errMsg := fmt.Sprintf("failed to read attachment data: %v", err)
@@ -947,7 +703,9 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 					}
 					continue
 				}
-				if err := c.saveAttachment(a.Filename, content); err != nil {
+
+				finalPath, err := parser.SaveAttachment(a.Filename, content, attachmentConfig, c.logger)
+				if err != nil {
 					errMsg := fmt.Sprintf("failed to save attachment: %v", err)
 					c.logger.Error("failed to save attachment",
 						"filename", a.Filename,
@@ -972,7 +730,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 					}
 					continue
 				}
-				result.Attachments = append(result.Attachments, a.Filename)
+				result.Attachments = append(result.Attachments, filepath.Base(finalPath))
 			}
 		}
 
@@ -990,244 +748,37 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 
 		results = append(results, result)
 
-		// Track this email as downloaded with the unique ID
-		if trackingManager != nil {
-			if err := trackingManager.TrackEmail(
+		// Mark email as downloaded in tracking system
+		if trackingManager != nil && c.cfg.Email.Tracking.TrackDownloaded {
+			err := trackingManager.MarkEmailDownloaded(
 				req.Config.Protocol,
 				req.Config.Server,
 				req.Config.Username,
-				uniqueID, // Use the unique ID
-				result.Subject,
-				result.Status,
-			); err != nil {
-				c.logger.Warn("failed to track email",
+				uniqueID,
+				sender,
+				subject,
+				sentAt,
+				len(result.Attachments),
+			)
+			if err != nil {
+				c.logger.Warn("failed to mark email as downloaded",
 					"message_id", uniqueID,
 					"error", err)
-				// Continue processing
 			}
 		}
 
 		// Delete message if configured
-		if req.Config.DeleteAfterDownload {
+		if c.cfg.Email.Protocols.POP3.DeleteAfterDownload {
+			c.logger.Debug("deleting message", "message_id", popMsg.ID)
 			if err := conn.Dele(popMsg.ID); err != nil {
-				c.logger.Error("failed to delete message",
+				c.logger.Warn("failed to delete message",
 					"message_id", popMsg.ID,
-					"error", err,
-				)
-
-				// Log deletion error
-				if errorLogger != nil {
-					errorLogger.LogError(errorlog.EmailError{
-						Protocol:  req.Config.Protocol,
-						Server:    req.Config.Server,
-						Username:  req.Config.Username,
-						MessageID: uniqueID,
-						Sender:    sender,
-						Subject:   subject,
-						SentAt:    sentAt,
-						ErrorTime: time.Now().UTC(),
-						ErrorType: "delete_message",
-						ErrorMsg:  fmt.Sprintf("failed to delete message: %v", err),
-					})
-				}
+					"error", err)
 			}
 		}
 	}
 
 	return results, nil
-}
-
-func (c *POP3Client) isAllowedAttachment(filename string) bool {
-	if filename == "" {
-		c.logger.Debug("empty filename", "filename", filename)
-		return false
-	}
-
-	ext := filepath.Ext(filename)
-	if ext == "" {
-		c.logger.Debug("no extension", "filename", filename)
-		return false
-	}
-
-	ext = strings.ToLower(ext)
-	c.logger.Debug("checking attachment",
-		"filename", filename,
-		"extension", ext,
-		"allowed_types", c.cfg.Email.Attachments.AllowedTypes)
-
-	for _, allowedType := range c.cfg.Email.Attachments.AllowedTypes {
-		allowedType = strings.ToLower(allowedType)
-		// Compare with and without dot
-		if ext == allowedType ||
-			ext == "."+strings.TrimPrefix(allowedType, ".") ||
-			strings.TrimPrefix(ext, ".") == strings.TrimPrefix(allowedType, ".") {
-			c.logger.Debug("allowed attachment", "filename", filename, "extension", ext)
-			return true
-		}
-	}
-
-	c.logger.Debug("attachment not allowed", "filename", filename, "extension", ext)
-	return false
-}
-
-func (c *POP3Client) saveAttachment(filename string, content []byte) error {
-	// Validate content size
-	if int64(len(content)) > c.cfg.Email.Attachments.MaxSize {
-		return fmt.Errorf("attachment size %d exceeds maximum allowed size %d", len(content), c.cfg.Email.Attachments.MaxSize)
-	}
-
-	// First sanitize if configured (before pattern application)
-	if c.cfg.Email.Attachments.SanitizeFilenames {
-		filename = c.SanitizeFilename(filename)
-	}
-
-	// Apply the naming pattern
-	filename = c.generateFilename(filename, time.Now().UTC())
-
-	// Ensure filename has correct extension
-	ext := strings.ToLower(filepath.Ext(filename))
-	baseFilename := strings.TrimSuffix(filename, ext)
-
-	// If the extension is uppercase, convert it to lowercase
-	if ext != strings.ToLower(ext) {
-		filename = baseFilename + strings.ToLower(ext)
-	}
-
-	// If no extension, try to detect from content
-	if ext == "" {
-		contentType := http.DetectContentType(content)
-		if mimeExt, ok := mimeToExt[contentType]; ok {
-			filename = filename + mimeExt
-			ext = mimeExt
-		}
-	}
-
-	// Sanitize filename if configured
-	if c.cfg.Email.Attachments.SanitizeFilenames {
-		filename = c.SanitizeFilename(filename)
-	}
-
-	if err := os.MkdirAll(c.cfg.Email.Attachments.StoragePath, 0755); err != nil {
-		return fmt.Errorf("failed to create storage directory: %w", err)
-	}
-
-	var finalPath string
-	if c.cfg.Email.Attachments.PreserveStructure {
-		// Create date-based subdirectories
-		dateDir := time.Now().UTC().Format("2006/01/02")
-		fullDir := filepath.Join(c.cfg.Email.Attachments.StoragePath, dateDir)
-		if err := os.MkdirAll(fullDir, 0755); err != nil {
-			return fmt.Errorf("failed to create date directory: %w", err)
-		}
-		finalPath = filepath.Join(fullDir, filename)
-	} else {
-		finalPath = filepath.Join(c.cfg.Email.Attachments.StoragePath, filename)
-	}
-	c.logger.Debug("final path", "path", finalPath)
-
-	// Check if file already exists
-	if _, err := os.Stat(finalPath); err == nil {
-		// File exists, append timestamp to filename
-		ext := filepath.Ext(finalPath)
-		base := strings.TrimSuffix(finalPath, ext)
-		// Ensure we have an extension
-		if ext == "" {
-			ext = filepath.Ext(filename)
-		}
-		finalPath = fmt.Sprintf("%s_%d%s", base, time.Now().UnixNano(), ext)
-	}
-
-	// Create file with restricted permissions
-	f, err := os.OpenFile(finalPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-	defer f.Close()
-
-	// Write content
-	if _, err := f.Write(content); err != nil {
-		os.Remove(finalPath) // Clean up on error
-		return fmt.Errorf("failed to write file content: %w", err)
-	}
-
-	return nil
-}
-
-func (c *POP3Client) SanitizeFilename(filename string) string {
-	// Remove any path components
-	filename = filepath.Base(filename)
-
-	// Replace potentially problematic characters
-	replacer := strings.NewReplacer(
-		" ", "_",
-		"&", "_and_",
-		"#", "_hash_",
-		"{", "_",
-		"}", "_",
-		"\\", "_",
-		"<", "_",
-		">", "_",
-		"*", "_",
-		"?", "_",
-		"!", "_",
-		"$", "_",
-		"'", "_",
-		"\"", "_",
-		":", "_",
-		"@", "_at_",
-		"+", "_plus_",
-		"`", "_",
-		"|", "_",
-		"=", "_equals_",
-	)
-
-	sanitized := replacer.Replace(filename)
-
-	// Ensure the filename isn't too long
-	if len(sanitized) > 255 {
-		ext := filepath.Ext(sanitized)
-		sanitized = sanitized[:255-len(ext)] + ext
-	}
-
-	return sanitized
-}
-
-func (c *POP3Client) generateFilename(originalName string, downloadTime time.Time) string {
-	pattern := c.cfg.Email.Attachments.NamingPattern
-
-	// Add detailed config logging
-	c.logger.Debug("checking naming pattern config",
-		"raw_pattern", pattern,
-		"config_attachments", c.cfg.Email.Attachments)
-
-	if pattern == "" {
-		// Use default pattern if none specified
-		pattern = "${unixtime}_${filename}"
-		c.logger.Debug("using default pattern", "pattern", pattern)
-	}
-
-	// Split filename into base and extension
-	ext := filepath.Ext(originalName)
-	baseFilename := strings.TrimSuffix(originalName, ext)
-
-	// Create the timestamp part using nanoseconds
-	timestamp := fmt.Sprintf("%d", downloadTime.UnixNano())
-
-	// Replace pattern variables
-	result := pattern
-	result = strings.ReplaceAll(result, "${unixtime}", timestamp)
-	result = strings.ReplaceAll(result, "${filename}", baseFilename)
-
-	// Log the filename generation process
-	c.logger.Debug("generating filename",
-		"original", originalName,
-		"pattern", pattern,
-		"timestamp", timestamp,
-		"baseFilename", baseFilename,
-		"result", result+ext)
-
-	// Ensure the extension is preserved
-	return result + ext
 }
 
 func (c *POP3Client) checkResponse(response string, context string) error {
@@ -1239,277 +790,4 @@ func (c *POP3Client) checkResponse(response string, context string) error {
 		return fmt.Errorf("%s failed: %s", context, response)
 	}
 	return nil
-}
-
-func (c *POP3Client) extractAttachments(msgBody io.Reader) ([]parsemail.Attachment, error) {
-	email, err := parsemail.Parse(msgBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse email: %w", err)
-	}
-
-	var attachments []parsemail.Attachment
-	attachments = append(attachments, email.Attachments...)
-	// Convert EmbeddedFiles to Attachments
-	for _, ef := range email.EmbeddedFiles {
-		attachments = append(attachments, parsemail.Attachment{
-			Filename: fmt.Sprintf("embedded_%d%s", time.Now().UnixNano(), getExtensionFromContentType(ef.ContentType)),
-			Data:     ef.Data,
-		})
-	}
-
-	c.logger.Debug("found attachments",
-		"regular_count", len(email.Attachments),
-		"embedded_count", len(email.EmbeddedFiles),
-		"total_count", len(attachments))
-
-	return attachments, nil
-}
-
-func getExtensionFromContentType(contentType string) string {
-	if ext, ok := mimeToExt[contentType]; ok {
-		return ext
-	}
-	// Default to .bin if content type is unknown
-	return ".bin"
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func processHTML(htmlContent []byte) []parsemail.Attachment {
-	var attachments []parsemail.Attachment
-	// Process base64 encoded images in HTML content
-	for _, line := range bytes.Split(htmlContent, []byte("\n")) {
-		if bytes.Contains(line, []byte("data:image/")) && bytes.Contains(line, []byte(";base64,")) {
-			parts := bytes.Split(line, []byte(";base64,"))
-			if len(parts) == 2 {
-				contentType := string(bytes.TrimPrefix(parts[0], []byte("data:")))
-				decoded, err := base64.StdEncoding.DecodeString(string(parts[1]))
-				if err == nil {
-					ext := ".bin"
-					if mimeExt, ok := mimeToExt[contentType]; ok {
-						ext = mimeExt
-					}
-					attachments = append(attachments, parsemail.Attachment{
-						Filename: fmt.Sprintf("embedded_image_%d%s", time.Now().UnixNano(), ext),
-						Data:     bytes.NewReader(decoded),
-					})
-				}
-			}
-		}
-	}
-	return attachments
-}
-
-// Update the parseEmail method to better handle MIME parsing errors
-func (c *POP3Client) parseEmail(content []byte) (parsemail.Email, error) {
-	var email parsemail.Email
-	var err error
-
-	// Try to parse the email
-	email, err = parsemail.Parse(bytes.NewReader(content))
-	if err != nil {
-		// Check for specific error types
-		if strings.Contains(err.Error(), "multipart: NextPart: EOF") {
-			c.logger.Debug("handling multipart EOF error, attempting fallback parsing")
-			// Try fallback parsing method for malformed multipart messages
-			return c.parseEmailFallback(content)
-		} else if strings.Contains(err.Error(), "mime: invalid media parameter") {
-			c.logger.Debug("handling invalid media parameter error, attempting fallback parsing")
-			// Try fallback parsing method for invalid MIME parameters
-			return c.parseEmailFallback(content)
-		}
-
-		return email, fmt.Errorf("failed to parse email: %w", err)
-	}
-
-	return email, nil
-}
-
-// Fix the parseEmailFallback method to use the correct types
-func (c *POP3Client) parseEmailFallback(content []byte) (parsemail.Email, error) {
-	var email parsemail.Email
-
-	// Extract headers manually
-	headers, _ := parseHeaders(bytes.NewReader(content))
-
-	// Set basic email properties from headers
-	if from, ok := headers["From"]; ok && len(from) > 0 {
-		// For From field, create a slice with a single address
-		fromAddr, err := mail.ParseAddress(from[0])
-		if err == nil {
-			email.From = []*mail.Address{fromAddr}
-		} else {
-			// Fallback to just setting the address string
-			email.From = []*mail.Address{&mail.Address{Address: from[0]}}
-		}
-	}
-
-	if to, ok := headers["To"]; ok && len(to) > 0 {
-		// For To field, create a slice of addresses
-		var toAddrs []*mail.Address
-		toAddr, err := mail.ParseAddress(to[0])
-		if err == nil {
-			toAddrs = append(toAddrs, toAddr)
-		} else {
-			toAddrs = append(toAddrs, &mail.Address{Address: to[0]})
-		}
-		email.To = toAddrs
-	}
-
-	if subject, ok := headers["Subject"]; ok && len(subject) > 0 {
-		email.Subject = subject[0]
-	}
-
-	if date, ok := headers["Date"]; ok && len(date) > 0 {
-		// Try various date formats
-		for _, format := range []string{
-			time.RFC1123Z,
-			time.RFC1123,
-			time.RFC822Z,
-			time.RFC822,
-			"Mon, 2 Jan 2006 15:04:05 -0700",
-		} {
-			if t, err := time.Parse(format, date[0]); err == nil {
-				email.Date = t
-				break
-			}
-		}
-	}
-
-	// Try to extract attachments directly
-	attachments, err := c.extractAttachmentsDirectly(content, headers)
-	if err != nil {
-		c.logger.Debug("fallback attachment extraction failed", "error", err)
-	}
-
-	email.Attachments = attachments
-
-	return email, nil
-}
-
-// Add a method to extract attachments directly from content
-func (c *POP3Client) extractAttachmentsDirectly(content []byte, headers map[string][]string) ([]parsemail.Attachment, error) {
-	var attachments []parsemail.Attachment
-
-	// Try to find Content-Type and boundary
-	var boundary string
-	if contentType, ok := headers["Content-Type"]; ok && len(contentType) > 0 {
-		if _, params, _, err := mediatype.Parse(contentType[0]); err == nil {
-			if b, ok := params["boundary"]; ok {
-				boundary = b
-			}
-		}
-	}
-
-	if boundary == "" {
-		return nil, fmt.Errorf("no boundary found in Content-Type header")
-	}
-
-	// Split content by boundary
-	parts := bytes.Split(content, []byte("--"+boundary))
-
-	// Skip the first part (usually empty or preamble)
-	for i := 1; i < len(parts); i++ {
-		part := parts[i]
-
-		// Skip the closing boundary
-		if bytes.HasPrefix(part, []byte("--")) {
-			continue
-		}
-
-		// Split header and body
-		headerEnd := bytes.Index(part, []byte("\r\n\r\n"))
-		if headerEnd == -1 {
-			headerEnd = bytes.Index(part, []byte("\n\n"))
-			if headerEnd == -1 {
-				continue // No header/body separator found
-			}
-		}
-
-		headerData := part[:headerEnd]
-		bodyData := part[headerEnd+4:] // Skip the separator
-
-		// Parse part headers
-		partHeaders, _ := parseHeaders(bytes.NewReader(headerData))
-
-		// Check if this is an attachment
-		isAttachment := false
-		filename := ""
-
-		if contentDisp, ok := partHeaders["Content-Disposition"]; ok && len(contentDisp) > 0 {
-			if _, params, _, err := mediatype.Parse(contentDisp[0]); err == nil {
-				if fn, ok := params["filename"]; ok {
-					filename = decodeFilename(fn)
-					isAttachment = true
-				}
-			}
-		}
-
-		// If no filename from disposition, try Content-Type name parameter
-		if !isAttachment {
-			if contentType, ok := partHeaders["Content-Type"]; ok && len(contentType) > 0 {
-				if _, params, _, err := mediatype.Parse(contentType[0]); err == nil {
-					if name, ok := params["name"]; ok {
-						filename = decodeFilename(name)
-						isAttachment = true
-					}
-				}
-			}
-		}
-
-		if isAttachment && filename != "" {
-			// Decode body if needed
-			var decodedBody []byte
-			if encoding, ok := partHeaders["Content-Transfer-Encoding"]; ok && len(encoding) > 0 {
-				switch strings.ToLower(encoding[0]) {
-				case "base64":
-					decoded, err := base64.StdEncoding.DecodeString(string(bodyData))
-					if err == nil {
-						decodedBody = decoded
-					} else {
-						decodedBody = bodyData // Use original if decoding fails
-					}
-				case "quoted-printable":
-					reader := quotedprintable.NewReader(bytes.NewReader(bodyData))
-					decoded, err := io.ReadAll(reader)
-					if err == nil {
-						decodedBody = decoded
-					} else {
-						decodedBody = bodyData // Use original if decoding fails
-					}
-				default:
-					decodedBody = bodyData // No decoding needed
-				}
-			} else {
-				decodedBody = bodyData // No encoding specified
-			}
-
-			attachments = append(attachments, parsemail.Attachment{
-				Filename: filename,
-				Data:     bytes.NewReader(decodedBody),
-			})
-		}
-	}
-
-	return attachments, nil
-}
-
-// Helper to get a sample of the raw message for debugging
-func (c *POP3Client) getRawMessageSample(content []byte) string {
-	if !c.cfg.Email.ErrorLogging.LogRawMessage {
-		return ""
-	}
-
-	// Get the first 1000 bytes or less
-	maxLen := 1000
-	if len(content) < maxLen {
-		maxLen = len(content)
-	}
-
-	return string(content[:maxLen])
 }
