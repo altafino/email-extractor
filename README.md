@@ -5,6 +5,8 @@ A service that automatically downloads emails and extracts attachments using POP
 ## Features
 
 ### Email Processing
+- [x] Multiple Account Support
+- [x] Tracking of Processed Emails
 - [x] POP3 Protocol Support
   - [x] TLS Support
   - [x] Custom Port Configuration
