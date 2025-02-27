@@ -631,15 +631,21 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 			}
 		}
 
-		// Process email content to extract attachments
+		// Process email content to extract attachments and collect any errors
+		// This step parses the email body and finds any file attachments
+		// Returns processed content, attachments list, and potential errors
 		content, _, attachments, err := parser.ProcessEmailContent(content, fmt.Sprintf("%d", popMsg.ID), c.logger)
 		if err != nil {
+			// Log debug info about processing failure
 			c.logger.Debug("failed to process email content", "error", err, "message_id", popMsg.ID)
+
+			// Update result status to indicate error
 			result.Status = "error"
 			result.ErrorMessage = fmt.Sprintf("failed to process email content: %v", err)
 
-			// Log the error
+			// Log detailed error information if error logging is enabled
 			if errorLogger != nil {
+				// Create comprehensive error log entry with email metadata
 				errorLogger.LogError(errorlog.EmailError{
 					Protocol:  req.Config.Protocol,
 					Server:    req.Config.Server,
@@ -651,11 +657,12 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 					ErrorTime: time.Now().UTC(),
 					ErrorType: "process_email",
 					ErrorMsg:  fmt.Sprintf("failed to process email content: %v", err),
-					// Include a portion of the raw message for debugging if configured
+					// Include truncated raw message for debugging purposes
 					RawMessage: parser.GetRawMessageSample(content, 1000),
 				})
 			}
 
+			// Add error result to results list and skip to next message
 			results = append(results, result)
 			continue
 		}
@@ -779,15 +786,4 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 	}
 
 	return results, nil
-}
-
-func (c *POP3Client) checkResponse(response string, context string) error {
-	if strings.HasPrefix(response, "-ERR") {
-		c.logger.Error("server error",
-			"context", context,
-			"response", response,
-		)
-		return fmt.Errorf("%s failed: %s", context, response)
-	}
-	return nil
 }
