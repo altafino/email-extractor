@@ -6,8 +6,14 @@ import (
 
 	"fmt"
 
+	"io"
+	"log/slog"
+
+	"path/filepath"
+
 	"time"
 
+	"github.com/altafino/email-extractor/internal/email/parser"
 	"github.com/altafino/email-extractor/internal/types"
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -17,12 +23,12 @@ import (
 type IMAPClient struct {
 	config     *types.Config
 	client     *client.Client
-	logger     Logger
+	logger     *slog.Logger
 	attachment *AttachmentHandler
 }
 
 // NewIMAPClient creates a new IMAP client
-func NewIMAPClient(config *types.Config, logger Logger) (*IMAPClient, error) {
+func NewIMAPClient(config *types.Config, logger *slog.Logger) (*IMAPClient, error) {
 	return &IMAPClient{
 		config:     config,
 		logger:     logger,
@@ -136,10 +142,108 @@ func (c *IMAPClient) FetchMessages(ctx context.Context) error {
 
 // processMessage handles individual message processing
 func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message) error {
-	// TODO: Implement message processing logic
-	// 1. Check for attachments in body structure
-	// 2. Download attachments
-	// 3. Save using attachment handler
+	c.logger.Info("processing message", "uid", msg.Uid)
+
+	// Create a new fetch request for the message body
+	seqSet := new(imap.SeqSet)
+	seqSet.AddNum(msg.SeqNum)
+
+	// Items to fetch - we need the entire message
+	items := []imap.FetchItem{imap.FetchRFC822}
+
+	// Channel to receive the message
+	messageData := make(chan *imap.Message, 1)
+	done := make(chan error, 1)
+
+	// Fetch the message body
+	go func() {
+		done <- c.client.Fetch(seqSet, items, messageData)
+	}()
+
+	// Get the message from the channel
+	fetchedMsg := <-messageData
+	if err := <-done; err != nil {
+		return fmt.Errorf("failed to fetch message body: %w", err)
+	}
+
+	if fetchedMsg == nil {
+		return fmt.Errorf("no message data received")
+	}
+
+	// Get the message body
+	var body []byte
+	for _, literal := range fetchedMsg.Body {
+		b, err := io.ReadAll(literal)
+		if err != nil {
+			return fmt.Errorf("failed to read message body: %w", err)
+		}
+		body = b
+		break // We only need one body part
+	}
+
+	if len(body) == 0 {
+		return fmt.Errorf("empty message body")
+	}
+
+	// Process email content to extract attachments
+	messageID := fmt.Sprintf("%d", msg.Uid)
+
+	_, _, attachments, err := parser.ProcessEmailContent(body, messageID, c.logger)
+	if err != nil {
+		c.logger.Error("failed to process email content",
+			"error", err,
+			"uid", msg.Uid)
+		return err
+	}
+
+	c.logger.Debug("parsed email",
+		"uid", msg.Uid,
+		"attachment_count", len(attachments))
+
+	// Create attachment config
+	attachmentConfig := parser.AttachmentConfig{
+		StoragePath:       c.config.Email.Attachments.StoragePath,
+		MaxSize:           int64(c.config.Email.Attachments.MaxSize),
+		AllowedTypes:      c.config.Email.Attachments.AllowedTypes,
+		SanitizeFilenames: c.config.Email.Attachments.SanitizeFilenames,
+		PreserveStructure: c.config.Email.Attachments.PreserveStructure,
+		FilenamePattern:   c.config.Email.Attachments.NamingPattern,
+	}
+
+	// Process attachments
+	var savedAttachments []string
+	for _, a := range attachments {
+		if parser.IsAllowedAttachment(a.Filename, c.config.Email.Attachments.AllowedTypes, c.logger) {
+			content, err := io.ReadAll(a.Data)
+			if err != nil {
+				c.logger.Error("failed to read attachment data",
+					"filename", a.Filename,
+					"error", err,
+				)
+				continue
+			}
+
+			finalPath, err := parser.SaveAttachment(a.Filename, content, attachmentConfig, c.logger)
+			if err != nil {
+				c.logger.Error("failed to save attachment",
+					"filename", a.Filename,
+					"error", err,
+				)
+				continue
+			}
+
+			savedAttachments = append(savedAttachments, filepath.Base(finalPath))
+			c.logger.Info("saved attachment",
+				"uid", msg.Uid,
+				"filename", a.Filename,
+				"path", finalPath)
+		}
+	}
+
+	c.logger.Info("processed message",
+		"uid", msg.Uid,
+		"saved_attachments", len(savedAttachments))
+
 	return nil
 }
 

@@ -157,8 +157,10 @@ func (s *Service) ProcessEmails() error {
 
 		// Now fetch messages after connection is established
 		if err := client.FetchMessages(context.Background()); err != nil {
+			s.logger.Error("failed to fetch messages", "error", err)
 			return fmt.Errorf("failed to fetch messages: %w", err)
 		}
+		s.logger.Info("successfully fetched messages")
 
 		// The results variable is no longer needed since FetchMessages returns an error
 		// results := client.FetchMessages(context.Background())
