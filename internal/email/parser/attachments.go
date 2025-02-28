@@ -380,23 +380,55 @@ func SaveAttachment(filename string, content []byte, config AttachmentConfig, lo
 		filename = SanitizeFilename(filename)
 	}
 
-	if err := os.MkdirAll(config.StoragePath, 0755); err != nil {
+	// Process storage path with date variables
+	now := time.Now().UTC()
+	storagePath := config.StoragePath
+
+	// Check if the storage path contains date variables
+	hasDateVars := strings.Contains(storagePath, "${")
+
+	// Replace date variables in storage path
+	if hasDateVars {
+		storagePath = strings.ReplaceAll(storagePath, "${YYYY}", now.Format("2006"))
+		storagePath = strings.ReplaceAll(storagePath, "${YY}", now.Format("06"))
+		storagePath = strings.ReplaceAll(storagePath, "${MM}", now.Format("01"))
+		storagePath = strings.ReplaceAll(storagePath, "${DD}", now.Format("02"))
+		storagePath = strings.ReplaceAll(storagePath, "${HH}", now.Format("15"))
+		storagePath = strings.ReplaceAll(storagePath, "${mm}", now.Format("04"))
+		storagePath = strings.ReplaceAll(storagePath, "${ss}", now.Format("05"))
+	}
+
+	// Determine the final directory path
+	var finalDir string
+
+	if config.PreserveStructure && !hasDateVars {
+		// Only use the old date-based structure if PreserveStructure is true
+		// AND there are no date variables in the path
+		dateDir := now.Format("2006/01/02")
+		finalDir = filepath.Join(storagePath, dateDir)
+	} else {
+		// Otherwise use the processed path directly
+		finalDir = storagePath
+	}
+
+	logger.Debug("final directory", "storagePath", storagePath, "finalDir", finalDir, "hasDateVars", hasDateVars, "preserveStructure", config.PreserveStructure)
+
+	// Create the directory
+	if err := os.MkdirAll(finalDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
-	var finalPath string
-	if config.PreserveStructure {
-		// Create date-based subdirectories
-		dateDir := time.Now().UTC().Format("2006/01/02")
-		fullDir := filepath.Join(config.StoragePath, dateDir)
-		if err := os.MkdirAll(fullDir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create date directory: %w", err)
-		}
-		finalPath = filepath.Join(fullDir, filename)
-	} else {
-		finalPath = filepath.Join(config.StoragePath, filename)
-	}
-	logger.Debug("final path", "path", finalPath)
+	// Combine directory and filename
+	finalPath := filepath.Join(finalDir, filename)
+
+	logger.Debug("saving attachment",
+		"filename", filename,
+		"storage_path", config.StoragePath,
+		"processed_path", storagePath,
+		"final_dir", finalDir,
+		"final_path", finalPath,
+		"preserve_structure", config.PreserveStructure,
+		"has_date_vars", hasDateVars)
 
 	// Check if file already exists
 	if _, err := os.Stat(finalPath); err == nil {

@@ -71,9 +71,9 @@ func LoadConfigs(configDir string) error {
 		}
 
 		// Ensure storage path exists for each config
-		if err := os.MkdirAll(cfg.Email.Attachments.StoragePath, 0755); err != nil {
-			// return fmt.Errorf("failed to create storage path for config %s: %w", cfg.Meta.ID, err)
-		}
+		//if err := os.MkdirAll(cfg.Email.Attachments.StoragePath, 0755); err != nil {
+		//	// return fmt.Errorf("failed to create storage path for config %s: %w", cfg.Meta.ID, err)
+		//}
 
 		// Apply template if specified
 		if cfg.Meta.Template != "" {
@@ -102,17 +102,49 @@ func loadSingleConfig(path string) (*types.Config, error) {
 	}
 
 	// Log raw config data
-	logger.Debug("raw config data before template",
+	logger.Debug("raw config data before processing",
 		"path", path,
 		"content", string(data))
 
-	// Expand environment variables in the config file
-	expandedData := os.ExpandEnv(string(data))
-
+	// First, parse the YAML without any environment variable expansion
 	config := &types.Config{}
-	if err := yaml.Unmarshal([]byte(expandedData), config); err != nil {
-		return nil, err
+	if err := yaml.Unmarshal(data, config); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
+
+	// Now handle environment variable expansion for specific fields that should support it
+	// but not for fields that might contain $ as part of their value
+
+	// For example, expand environment variables in server addresses, usernames, etc.
+	// but not in attachment paths that might contain ${YYYY} patterns
+
+	// We can selectively expand environment variables for specific fields
+	if strings.HasPrefix(config.Email.Protocols.POP3.Server, "${") {
+		config.Email.Protocols.POP3.Server = os.ExpandEnv(config.Email.Protocols.POP3.Server)
+	}
+
+	if strings.HasPrefix(config.Email.Protocols.POP3.Username, "${") {
+		config.Email.Protocols.POP3.Username = os.ExpandEnv(config.Email.Protocols.POP3.Username)
+	}
+
+	if strings.HasPrefix(config.Email.Protocols.POP3.Password, "${") {
+		config.Email.Protocols.POP3.Password = os.ExpandEnv(config.Email.Protocols.POP3.Password)
+	}
+
+	if strings.HasPrefix(config.Email.Protocols.IMAP.Server, "${") {
+		config.Email.Protocols.IMAP.Server = os.ExpandEnv(config.Email.Protocols.IMAP.Server)
+	}
+
+	if strings.HasPrefix(config.Email.Protocols.IMAP.Username, "${") {
+		config.Email.Protocols.IMAP.Username = os.ExpandEnv(config.Email.Protocols.IMAP.Username)
+	}
+
+	if strings.HasPrefix(config.Email.Protocols.IMAP.Password, "${") {
+		config.Email.Protocols.IMAP.Password = os.ExpandEnv(config.Email.Protocols.IMAP.Password)
+	}
+
+	// Do NOT expand environment variables in the storage path
+	// This preserves ${YYYY}, ${MM}, etc. patterns
 
 	// Set default naming pattern if not specified
 	if config.Email.Attachments.NamingPattern == "" || config.Email.Attachments.NamingPattern == "_" {
@@ -121,24 +153,19 @@ func loadSingleConfig(path string) (*types.Config, error) {
 			"pattern", config.Email.Attachments.NamingPattern)
 	}
 
-	logger.Debug("config after initial load",
-		"meta_template", config.Meta.Template,
-		"naming_pattern", config.Email.Attachments.NamingPattern)
-
-	// Add detailed debug logging for attachment config
-	logger.Debug("loaded attachment configuration",
-		"raw_naming_pattern", config.Email.Attachments.NamingPattern,
-		"full_config", fmt.Sprintf("%+v", config.Email.Attachments))
-
-	// Log the POP3 configuration after environment variable expansion
-	if config.Email.Protocols.POP3.Enabled {
-		logger.Debug("POP3 configuration loaded",
-			"server", config.Email.Protocols.POP3.Server,
-			"username", config.Email.Protocols.POP3.Username,
-			"port", config.Email.Protocols.POP3.DefaultPort,
-			"tls_enabled", config.Email.Protocols.POP3.Security.TLS.Enabled,
-		)
+	// Validate storage path
+	if config.Email.Attachments.StoragePath == "" {
+		logger.Warn("storage path is empty, setting default",
+			"default", "/tmp/email-attachments")
+		config.Email.Attachments.StoragePath = "/tmp/email-attachments"
 	}
+
+	// Log detailed attachment configuration
+	logger.Debug("attachment configuration after processing",
+		"storage_path", config.Email.Attachments.StoragePath,
+		"naming_pattern", config.Email.Attachments.NamingPattern,
+		"preserve_structure", config.Email.Attachments.PreserveStructure,
+		"sanitize_filenames", config.Email.Attachments.SanitizeFilenames)
 
 	return config, nil
 }
