@@ -42,7 +42,7 @@ email:
           client_id: "${OAUTH_CLIENT_ID}"
           client_secret: "${OAUTH_CLIENT_SECRET}"
     pop3:
-      enabled: true
+      enabled: false
       default_port: 995
       insecure_port: 110
       server: "${POP3_SERVER}"
