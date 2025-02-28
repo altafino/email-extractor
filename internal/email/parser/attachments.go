@@ -342,6 +342,17 @@ func IsAllowedAttachment(filename string, allowedTypes []string, logger *slog.Lo
 	return false
 }
 
+// AttachmentConfig holds configuration for attachment processing
+type AttachmentConfig struct {
+	StoragePath       string
+	MaxSize           int64
+	AllowedTypes      []string
+	SanitizeFilenames bool
+	PreserveStructure bool
+	FilenamePattern   string
+	AccountName       string
+}
+
 // SaveAttachment saves attachment content to a file with proper naming and permissions
 func SaveAttachment(filename string, content []byte, config AttachmentConfig, logger *slog.Logger) (string, error) {
 	// Validate content size
@@ -380,23 +391,67 @@ func SaveAttachment(filename string, content []byte, config AttachmentConfig, lo
 		filename = SanitizeFilename(filename)
 	}
 
-	if err := os.MkdirAll(config.StoragePath, 0755); err != nil {
+	// Process storage path with date variables
+	now := time.Now().UTC()
+	storagePath := config.StoragePath
+
+	// Check if the storage path contains variables
+	hasVars := strings.Contains(storagePath, "${")
+	
+	logger.Debug("processing storage path", 
+		"original", storagePath,
+		"has_vars", hasVars,
+		"account", config.AccountName)
+
+	// Replace variables in storage path
+	if hasVars {
+		// Create a map of all replacements to ensure consistency
+		replacements := map[string]string{
+			"${YYYY}":    now.Format("2006"),
+			"${YY}":      now.Format("06"),
+			"${MM}":      now.Format("01"),
+			"${DD}":      now.Format("02"),
+			"${HH}":      now.Format("15"),
+			"${mm}":      now.Format("04"),
+			"${ss}":      now.Format("05"),
+			"${account}": config.AccountName,
+		}
+		
+		// Apply all replacements
+		for pattern, replacement := range replacements {
+			storagePath = strings.ReplaceAll(storagePath, pattern, replacement)
+		}
+		
+		logger.Debug("replaced variables", 
+			"processed_path", storagePath)
+	}
+
+	// Determine the final directory path
+	var finalDir string
+
+	if config.PreserveStructure && !hasVars {
+		// Only use the old date-based structure if PreserveStructure is true
+		// AND there are no variables in the path
+		dateDir := now.Format("2006/01/02")
+		finalDir = filepath.Join(storagePath, dateDir)
+	} else {
+		// Otherwise use the processed path directly
+		finalDir = storagePath
+	}
+
+	logger.Debug("final directory path", 
+		"final_dir", finalDir)
+
+	// Create the directory
+	if err := os.MkdirAll(finalDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
-	var finalPath string
-	if config.PreserveStructure {
-		// Create date-based subdirectories
-		dateDir := time.Now().UTC().Format("2006/01/02")
-		fullDir := filepath.Join(config.StoragePath, dateDir)
-		if err := os.MkdirAll(fullDir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create date directory: %w", err)
-		}
-		finalPath = filepath.Join(fullDir, filename)
-	} else {
-		finalPath = filepath.Join(config.StoragePath, filename)
-	}
-	logger.Debug("final path", "path", finalPath)
+	// Combine directory and filename
+	finalPath := filepath.Join(finalDir, filename)
+
+	logger.Debug("final attachment path",
+		"final_path", finalPath)
 
 	// Check if file already exists
 	if _, err := os.Stat(finalPath); err == nil {
@@ -502,14 +557,4 @@ func GenerateFilename(filename string, timestamp time.Time, pattern string) stri
 	}
 
 	return result
-}
-
-// AttachmentConfig holds configuration for attachment handling
-type AttachmentConfig struct {
-	StoragePath       string
-	MaxSize           int64
-	AllowedTypes      []string
-	SanitizeFilenames bool
-	PreserveStructure bool
-	FilenamePattern   string
 }

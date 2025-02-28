@@ -76,14 +76,14 @@ email:
       - ".txt"
       - ".csv"
     max_size: 104857600
-    storage_path: "/data/attachments"
+    storage_path: "/home/stefan/data/attachments/${YYYY}/${MM}/${DD}"
     naming_pattern: "${unixtime}_${filename}"
     preserve_structure: true
     scan_nested: true
     sanitize_filenames: true
     handle_duplicates: "increment"
   tracking:
-    enabled: true
+    enabled: false
     storage_type: "file"
     storage_path: "/data/tracking"
     retention_days: 30
