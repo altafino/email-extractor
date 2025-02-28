@@ -366,7 +366,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 		"uid", msg.Uid,
 		"attachment_count", len(attachments))
 
-	// Create attachment config
+	// Create attachment config with account name
 	attachmentConfig := parser.AttachmentConfig{
 		StoragePath:       c.config.Email.Attachments.StoragePath,
 		MaxSize:           int64(c.config.Email.Attachments.MaxSize),
@@ -374,6 +374,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 		SanitizeFilenames: c.config.Email.Attachments.SanitizeFilenames,
 		PreserveStructure: c.config.Email.Attachments.PreserveStructure,
 		FilenamePattern:   c.config.Email.Attachments.NamingPattern,
+		AccountName:       c.config.Meta.ID,
 	}
 
 	// Process attachments

@@ -670,7 +670,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		c.logger.Debug("parsed email",
 			"attachment_count", len(attachments))
 
-		// Create attachment config
+		// Create attachment config with account name
 		attachmentConfig := parser.AttachmentConfig{
 			StoragePath:       c.cfg.Email.Attachments.StoragePath,
 			MaxSize:           int64(c.cfg.Email.Attachments.MaxSize),
@@ -678,6 +678,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 			SanitizeFilenames: c.cfg.Email.Attachments.SanitizeFilenames,
 			PreserveStructure: c.cfg.Email.Attachments.PreserveStructure,
 			FilenamePattern:   c.cfg.Email.Attachments.NamingPattern,
+			AccountName:       c.cfg.Meta.ID, // Add the account name from config ID
 		}
 
 		// Process attachments

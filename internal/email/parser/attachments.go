@@ -342,6 +342,17 @@ func IsAllowedAttachment(filename string, allowedTypes []string, logger *slog.Lo
 	return false
 }
 
+// AttachmentConfig holds configuration for attachment processing
+type AttachmentConfig struct {
+	StoragePath       string
+	MaxSize           int64
+	AllowedTypes      []string
+	SanitizeFilenames bool
+	PreserveStructure bool
+	FilenamePattern   string
+	AccountName       string
+}
+
 // SaveAttachment saves attachment content to a file with proper naming and permissions
 func SaveAttachment(filename string, content []byte, config AttachmentConfig, logger *slog.Logger) (string, error) {
 	// Validate content size
@@ -384,26 +395,43 @@ func SaveAttachment(filename string, content []byte, config AttachmentConfig, lo
 	now := time.Now().UTC()
 	storagePath := config.StoragePath
 
-	// Check if the storage path contains date variables
-	hasDateVars := strings.Contains(storagePath, "${")
+	// Check if the storage path contains variables
+	hasVars := strings.Contains(storagePath, "${")
+	
+	logger.Debug("processing storage path", 
+		"original", storagePath,
+		"has_vars", hasVars,
+		"account", config.AccountName)
 
-	// Replace date variables in storage path
-	if hasDateVars {
-		storagePath = strings.ReplaceAll(storagePath, "${YYYY}", now.Format("2006"))
-		storagePath = strings.ReplaceAll(storagePath, "${YY}", now.Format("06"))
-		storagePath = strings.ReplaceAll(storagePath, "${MM}", now.Format("01"))
-		storagePath = strings.ReplaceAll(storagePath, "${DD}", now.Format("02"))
-		storagePath = strings.ReplaceAll(storagePath, "${HH}", now.Format("15"))
-		storagePath = strings.ReplaceAll(storagePath, "${mm}", now.Format("04"))
-		storagePath = strings.ReplaceAll(storagePath, "${ss}", now.Format("05"))
+	// Replace variables in storage path
+	if hasVars {
+		// Create a map of all replacements to ensure consistency
+		replacements := map[string]string{
+			"${YYYY}":    now.Format("2006"),
+			"${YY}":      now.Format("06"),
+			"${MM}":      now.Format("01"),
+			"${DD}":      now.Format("02"),
+			"${HH}":      now.Format("15"),
+			"${mm}":      now.Format("04"),
+			"${ss}":      now.Format("05"),
+			"${account}": config.AccountName,
+		}
+		
+		// Apply all replacements
+		for pattern, replacement := range replacements {
+			storagePath = strings.ReplaceAll(storagePath, pattern, replacement)
+		}
+		
+		logger.Debug("replaced variables", 
+			"processed_path", storagePath)
 	}
 
 	// Determine the final directory path
 	var finalDir string
 
-	if config.PreserveStructure && !hasDateVars {
+	if config.PreserveStructure && !hasVars {
 		// Only use the old date-based structure if PreserveStructure is true
-		// AND there are no date variables in the path
+		// AND there are no variables in the path
 		dateDir := now.Format("2006/01/02")
 		finalDir = filepath.Join(storagePath, dateDir)
 	} else {
@@ -411,7 +439,8 @@ func SaveAttachment(filename string, content []byte, config AttachmentConfig, lo
 		finalDir = storagePath
 	}
 
-	logger.Debug("final directory", "storagePath", storagePath, "finalDir", finalDir, "hasDateVars", hasDateVars, "preserveStructure", config.PreserveStructure)
+	logger.Debug("final directory path", 
+		"final_dir", finalDir)
 
 	// Create the directory
 	if err := os.MkdirAll(finalDir, 0755); err != nil {
@@ -421,14 +450,8 @@ func SaveAttachment(filename string, content []byte, config AttachmentConfig, lo
 	// Combine directory and filename
 	finalPath := filepath.Join(finalDir, filename)
 
-	logger.Debug("saving attachment",
-		"filename", filename,
-		"storage_path", config.StoragePath,
-		"processed_path", storagePath,
-		"final_dir", finalDir,
-		"final_path", finalPath,
-		"preserve_structure", config.PreserveStructure,
-		"has_date_vars", hasDateVars)
+	logger.Debug("final attachment path",
+		"final_path", finalPath)
 
 	// Check if file already exists
 	if _, err := os.Stat(finalPath); err == nil {
@@ -534,14 +557,4 @@ func GenerateFilename(filename string, timestamp time.Time, pattern string) stri
 	}
 
 	return result
-}
-
-// AttachmentConfig holds configuration for attachment handling
-type AttachmentConfig struct {
-	StoragePath       string
-	MaxSize           int64
-	AllowedTypes      []string
-	SanitizeFilenames bool
-	PreserveStructure bool
-	FilenamePattern   string
 }
