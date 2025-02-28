@@ -33,6 +33,19 @@ func NewService(cfg *types.Config, logger *slog.Logger) *Service {
 }
 
 func (s *Service) ProcessEmails() error {
+	// Add extensive debug logging for configuration
+	s.logger.Debug("processing emails with full protocol configuration",
+		"imap_enabled", s.cfg.Email.Protocols.IMAP.Enabled,
+		"imap_server", s.cfg.Email.Protocols.IMAP.Server,
+		"pop3_enabled", s.cfg.Email.Protocols.POP3.Enabled,
+		"pop3_server", s.cfg.Email.Protocols.POP3.Server,
+		"config_id", s.cfg.Meta.ID)
+
+	// Add debug logging for protocol configuration
+	s.logger.Debug("email protocol configuration",
+		"imap_enabled", s.cfg.Email.Protocols.IMAP.Enabled,
+		"pop3_enabled", s.cfg.Email.Protocols.POP3.Enabled)
+
 	// Add debug logging at the start
 	s.logger.Debug("processing emails with config",
 		"attachment_naming_pattern", s.cfg.Email.Attachments.NamingPattern,
@@ -149,10 +162,14 @@ func (s *Service) ProcessEmails() error {
 
 		// The results variable is no longer needed since FetchMessages returns an error
 		// results := client.FetchMessages(context.Background())
+	} else {
+		s.logger.Info("IMAP processing disabled, skipping")
 	}
 
-	// Process POP3 if enabled
-	if s.cfg.Email.Protocols.POP3.Enabled {
+	// Process POP3 if enabled - explicitly check the Enabled flag
+	if s.cfg.Email.Protocols.POP3.Enabled == false {
+		s.logger.Info("POP3 processing disabled, skipping")
+	} else {
 		s.logger.Info("Starting POP3 processing",
 			"config_id", s.cfg.Meta.ID,
 			"server", s.cfg.Email.Protocols.POP3.Server,
