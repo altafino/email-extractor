@@ -14,7 +14,9 @@ A service that automatically downloads emails and extracts attachments using POP
   - [x] TLS Support
   - [x] Custom Port Configuration
   - [ ] Delete After Download Option
-- [ ] IMAP Protocol Support (in work)
+- [x] IMAP Protocol Support
+  - [x] TLS Support
+  - [x] Custom Port Configuration
 - [x] Attachment Handling
   - [x] File Type Filtering
   - [x] Size Limits (configurable)
