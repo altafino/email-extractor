@@ -341,24 +341,24 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 		c.logger.Error("failed to process email content",
 			"error", err,
 			"uid", msg.Uid)
-		
+
 		// Log detailed error information
 		if errorLogger != nil {
 			errorLogger.LogError(errorlog.EmailError{
-				Protocol:  "IMAP",
-				Server:    c.config.Email.Protocols.IMAP.Server,
-				Username:  c.config.Email.Protocols.IMAP.Username,
-				MessageID: uniqueID,
-				Sender:    sender,
-				Subject:   subject,
-				SentAt:    sentAt,
-				ErrorTime: time.Now().UTC(),
-				ErrorType: "process_email",
-				ErrorMsg:  fmt.Sprintf("failed to process email content: %v", err),
+				Protocol:   "IMAP",
+				Server:     c.config.Email.Protocols.IMAP.Server,
+				Username:   c.config.Email.Protocols.IMAP.Username,
+				MessageID:  uniqueID,
+				Sender:     sender,
+				Subject:    subject,
+				SentAt:     sentAt,
+				ErrorTime:  time.Now().UTC(),
+				ErrorType:  "process_email",
+				ErrorMsg:   fmt.Sprintf("failed to process email content: %v", err),
 				RawMessage: parser.GetRawMessageSample(body, 1000),
 			})
 		}
-			
+
 		return err
 	}
 
@@ -379,7 +379,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 	// Process attachments
 	var savedAttachments []string
 	var attachmentErrors []string
-	
+
 	for _, a := range attachments {
 		if parser.IsAllowedAttachment(a.Filename, c.config.Email.Attachments.AllowedTypes, c.logger) {
 			content, err := io.ReadAll(a.Data)
@@ -390,7 +390,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 					"error", err,
 				)
 				attachmentErrors = append(attachmentErrors, errMsg)
-				
+
 				// Log attachment error
 				if errorLogger != nil {
 					errorLogger.LogError(errorlog.EmailError{
@@ -417,7 +417,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 					"error", err,
 				)
 				attachmentErrors = append(attachmentErrors, errMsg)
-				
+
 				// Log attachment error
 				if errorLogger != nil {
 					errorLogger.LogError(errorlog.EmailError{
@@ -476,15 +476,15 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 	// Delete message if configured
 	if c.config.Email.Protocols.IMAP.DeleteAfterDownload {
 		c.logger.Debug("marking message for deletion", "uid", msg.Uid)
-		
+
 		// Create a sequence set with just this message
 		seqSet := new(imap.SeqSet)
 		seqSet.AddNum(msg.SeqNum)
-		
+
 		// Add the \Deleted flag
 		item := imap.FormatFlagsOp(imap.AddFlags, true)
 		flags := []interface{}{imap.DeletedFlag}
-		
+
 		err := c.client.Store(seqSet, item, flags, nil)
 		if err != nil {
 			c.logger.Warn("failed to mark message for deletion",
