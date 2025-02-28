@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/altafino/email-extractor/internal/validation"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -95,11 +96,17 @@ func initConfig() {
 		}
 	}
 
-	// List available configurations
+	// Validate configurations and list available configurations
 	configs := config.ListConfigs()
 	if len(configs) == 0 {
 		fmt.Fprintf(os.Stderr, "No configurations found in %s\n", configDir)
 		os.Exit(1)
+	}
+	for _, cfg := range configs {
+		if err := validation.ValidateConfig(cfg); err != nil {
+			logger.Error("Error validating configuration", "id", cfg.Meta.ID, "error", err)
+			os.Exit(1)
+		}
 	}
 
 	logger.Info("loaded configurations",

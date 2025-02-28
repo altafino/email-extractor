@@ -25,17 +25,18 @@ type Config struct {
 		MaxConcurrent  int `yaml:"max_concurrent"`
 		Protocols      struct {
 			IMAP struct {
-				Enabled      bool     `yaml:"enabled"`
-				DefaultPort  int      `yaml:"default_port"`
-				InsecurePort int      `yaml:"insecure_port"`
-				IdleTimeout  int      `yaml:"idle_timeout"`
-				BatchSize    int      `yaml:"batch_size"`
-				Server       string   `yaml:"server"`
-				Username     string   `yaml:"username"`
-				Password     string   `yaml:"password"`
-				Folders      []string `yaml:"folders"`
-				UseIdle      bool     `yaml:"use_idle"`
-				Security     struct {
+				Enabled             bool     `yaml:"enabled"`
+				DefaultPort         int      `yaml:"default_port"`
+				InsecurePort        int      `yaml:"insecure_port"`
+				IdleTimeout         int      `yaml:"idle_timeout"`
+				BatchSize           int      `yaml:"batch_size"`
+				Server              string   `yaml:"server"`
+				Username            string   `yaml:"username"`
+				Password            string   `yaml:"password"`
+				Folders             []string `yaml:"folders"`
+				UseIdle             bool     `yaml:"use_idle"`
+				DeleteAfterDownload bool     `yaml:"delete_after_download"`
+				Security            struct {
 					TLS struct {
 						Enabled    bool   `yaml:"enabled"`
 						MinVersion string `yaml:"min_version"`

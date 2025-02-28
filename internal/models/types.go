@@ -10,6 +10,7 @@ type EmailConfig struct {
 	Password            string `json:"password" yaml:"password"`
 	EnableTLS           bool   `json:"enable_tls" yaml:"enable_tls"`
 	DeleteAfterDownload bool   `json:"delete_after_download" yaml:"delete_after_download"`
+	Folders             []string `json:"folders" yaml:"folders"`
 }
 
 type AttachmentConfig struct {

@@ -71,6 +71,17 @@ func validateServer(cfg *types.Config) error {
 }
 
 func validateEmail(cfg *types.Config) error {
+
+	// Validate protocols configuration
+	if cfg.Email.Protocols.IMAP.Enabled == false && cfg.Email.Protocols.POP3.Enabled == false {
+		return fmt.Errorf("email.protocols.imap.enabled and email.protocols.pop3.enabled cannot both be false")
+	}
+
+	// Validate protocols configuration
+	if cfg.Email.Protocols.IMAP.Enabled == true && cfg.Email.Protocols.POP3.Enabled == true {
+		return fmt.Errorf("email.protocols.imap.enabled and email.protocols.pop3.enabled cannot both be true")
+	}
+
 	if cfg.Email.DefaultTimeout <= 0 {
 		return fmt.Errorf("email.default_timeout must be positive")
 	}

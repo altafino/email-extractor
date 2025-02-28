@@ -29,6 +29,7 @@ email:
       password: "${IMAP_PASSWORD}"
       folders: ["INBOX"]
       use_idle: false
+      delete_after_download: false
       security:
         tls:
           enabled: true
