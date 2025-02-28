@@ -33,7 +33,7 @@ func NewIMAPClient(config *types.Config, logger Logger) (*IMAPClient, error) {
 // Connect establishes a connection to the IMAP server
 func (c *IMAPClient) Connect(ctx context.Context) error {
 	server := fmt.Sprintf("%s:%d", c.config.Email.Protocols.IMAP.Server, c.config.Email.Protocols.IMAP.DefaultPort)
-	
+
 	c.logger.Info("connecting to IMAP server",
 		"server", c.config.Email.Protocols.IMAP.Server,
 		"port", c.config.Email.Protocols.IMAP.DefaultPort,
@@ -42,7 +42,7 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 	)
 
 	var err error
-	
+
 	// For port 143, always use plain connection first, then STARTTLS
 	if c.config.Email.Protocols.IMAP.DefaultPort == 143 {
 		c.logger.Debug("using port 143, starting with plain connection")
@@ -50,7 +50,7 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to connect to IMAP server: %w", err)
 		}
-		
+
 		// If TLS is enabled, use STARTTLS to upgrade the connection
 		if c.config.Email.Protocols.IMAP.Security.TLS.Enabled {
 			c.logger.Debug("upgrading connection with STARTTLS")
@@ -59,7 +59,7 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 				MinVersion:         tls.VersionTLS12,
 				InsecureSkipVerify: !c.config.Email.Protocols.IMAP.Security.TLS.VerifyCert,
 			}
-			
+
 			if err := c.client.StartTLS(tlsConfig); err != nil {
 				c.logger.Warn("STARTTLS failed, continuing with plain connection", "error", err)
 				// Continue with plain connection if STARTTLS fails
@@ -73,7 +73,7 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: !c.config.Email.Protocols.IMAP.Security.TLS.VerifyCert,
 		}
-		
+
 		c.client, err = client.DialTLS(server, tlsConfig)
 		if err != nil {
 			return fmt.Errorf("failed to connect to IMAP server: %w", err)
