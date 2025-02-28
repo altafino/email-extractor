@@ -139,8 +139,8 @@ func (s *Service) ProcessEmails() error {
 			Username:  s.addDomainIfNeeded(s.cfg.Email.Protocols.IMAP.Username, s.cfg.Email.Protocols.IMAP.Server),
 			Password:  s.cfg.Email.Protocols.IMAP.Password,
 			EnableTLS: s.cfg.Email.Protocols.IMAP.Security.TLS.Enabled,
-			// DeleteAfterDownload: s.cfg.Email.Protocols.IMAP.DeleteAfterDownload,
-			// Folders:             s.cfg.Email.Protocols.IMAP.Folders,
+			DeleteAfterDownload: s.cfg.Email.Protocols.IMAP.DeleteAfterDownload,
+			Folders:             s.cfg.Email.Protocols.IMAP.Folders,
 		}
 		s.logger.Info("emailCfg", "emailCfg", emailCfg)
 
