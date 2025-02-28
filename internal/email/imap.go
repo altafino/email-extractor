@@ -1,6 +1,7 @@
 package email
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 
@@ -11,9 +12,12 @@ import (
 
 	"path/filepath"
 
+	"strings"
 	"time"
 
 	"github.com/altafino/email-extractor/internal/email/parser"
+	"github.com/altafino/email-extractor/internal/errorlog"
+	"github.com/altafino/email-extractor/internal/tracking"
 	"github.com/altafino/email-extractor/internal/types"
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -107,6 +111,30 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 
 // FetchMessages retrieves messages from the IMAP server
 func (c *IMAPClient) FetchMessages(ctx context.Context) error {
+	// Create tracking manager
+	trackingManager, err := tracking.NewManager(c.config, c.logger)
+	if err != nil {
+		c.logger.Error("failed to initialize tracking manager", "error", err)
+		// Continue without tracking if it fails
+	} else {
+		defer trackingManager.Close()
+	}
+
+	// Create error logging manager
+	c.logger.Debug("initializing error logger",
+		"enabled", c.config.Email.ErrorLogging.Enabled,
+		"storage_path", c.config.Email.ErrorLogging.StoragePath)
+
+	errorLogger, err := errorlog.NewManager(c.config, c.logger)
+	if err != nil {
+		c.logger.Error("failed to initialize error logger",
+			"error", err,
+			"config", c.config.Email.ErrorLogging)
+		// Continue without error logging if it fails
+	} else {
+		defer errorLogger.Close()
+	}
+
 	// Select INBOX
 	mbox, err := c.client.Select("INBOX", false)
 	if err != nil {
@@ -128,11 +156,12 @@ func (c *IMAPClient) FetchMessages(ctx context.Context) error {
 	done := make(chan error, 1)
 
 	go func() {
-		done <- c.client.Fetch(seqSet, []imap.FetchItem{imap.FetchEnvelope, imap.FetchBodyStructure}, messages)
+		done <- c.client.Fetch(seqSet, []imap.FetchItem{imap.FetchEnvelope, imap.FetchBodyStructure, imap.FetchUid}, messages)
 	}()
 
 	for msg := range messages {
-		if err := c.processMessage(ctx, msg); err != nil {
+		// Process each message
+		if err := c.processMessage(ctx, msg, trackingManager, errorLogger); err != nil {
 			c.logger.Error("Failed to process message", "error", err, "uid", msg.Uid)
 		}
 	}
@@ -141,8 +170,27 @@ func (c *IMAPClient) FetchMessages(ctx context.Context) error {
 }
 
 // processMessage handles individual message processing
-func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message) error {
+func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trackingManager *tracking.Manager, errorLogger *errorlog.Manager) error {
 	c.logger.Info("processing message", "uid", msg.Uid)
+
+	// Check if this message has already been downloaded using the UID
+	if trackingManager != nil && c.config.Email.Tracking.TrackDownloaded {
+		downloaded, err := trackingManager.IsEmailDownloaded(
+			"IMAP",
+			c.config.Email.Protocols.IMAP.Server,
+			c.config.Email.Protocols.IMAP.Username,
+			fmt.Sprintf("%d", msg.Uid),
+		)
+		if err != nil {
+			c.logger.Warn("failed to check if email was downloaded",
+				"uid", msg.Uid,
+				"error", err)
+			// Continue processing this message
+		} else if downloaded {
+			c.logger.Debug("skipping already downloaded message", "uid", msg.Uid)
+			return nil // Skip this message
+		}
+	}
 
 	// Create a new fetch request for the message body
 	seqSet := new(imap.SeqSet)
@@ -163,10 +211,32 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message) erro
 	// Get the message from the channel
 	fetchedMsg := <-messageData
 	if err := <-done; err != nil {
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  "IMAP",
+				Server:    c.config.Email.Protocols.IMAP.Server,
+				Username:  c.config.Email.Protocols.IMAP.Username,
+				MessageID: fmt.Sprintf("%d", msg.Uid),
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "fetch_message",
+				ErrorMsg:  fmt.Sprintf("failed to fetch message body: %v", err),
+			})
+		}
 		return fmt.Errorf("failed to fetch message body: %w", err)
 	}
 
 	if fetchedMsg == nil {
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  "IMAP",
+				Server:    c.config.Email.Protocols.IMAP.Server,
+				Username:  c.config.Email.Protocols.IMAP.Username,
+				MessageID: fmt.Sprintf("%d", msg.Uid),
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "empty_message",
+				ErrorMsg:  "no message data received",
+			})
+		}
 		return fmt.Errorf("no message data received")
 	}
 
@@ -175,6 +245,17 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message) erro
 	for _, literal := range fetchedMsg.Body {
 		b, err := io.ReadAll(literal)
 		if err != nil {
+			if errorLogger != nil {
+				errorLogger.LogError(errorlog.EmailError{
+					Protocol:  "IMAP",
+					Server:    c.config.Email.Protocols.IMAP.Server,
+					Username:  c.config.Email.Protocols.IMAP.Username,
+					MessageID: fmt.Sprintf("%d", msg.Uid),
+					ErrorTime: time.Now().UTC(),
+					ErrorType: "read_body",
+					ErrorMsg:  fmt.Sprintf("failed to read message body: %v", err),
+				})
+			}
 			return fmt.Errorf("failed to read message body: %w", err)
 		}
 		body = b
@@ -182,17 +263,102 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message) erro
 	}
 
 	if len(body) == 0 {
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  "IMAP",
+				Server:    c.config.Email.Protocols.IMAP.Server,
+				Username:  c.config.Email.Protocols.IMAP.Username,
+				MessageID: fmt.Sprintf("%d", msg.Uid),
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "empty_body",
+				ErrorMsg:  "empty message body",
+			})
+		}
 		return fmt.Errorf("empty message body")
+	}
+
+	// Extract basic email information for logging
+	var sender, subject string
+	var sentAt time.Time
+
+	headers, err := parser.ParseHeaders(bytes.NewReader(body))
+	if err != nil {
+		c.logger.Warn("failed to parse headers", "error", err)
+		// Continue with empty headers map
+		headers = make(map[string][]string)
+	}
+
+	// Try multiple header variations for From field
+	sender = parser.ExtractHeaderValue(headers, []string{"From", "FROM", "from", "Sender", "SENDER", "sender"})
+	c.logger.Debug("extracted sender", "sender", sender, "raw_headers", headers)
+
+	// Try multiple header variations for Subject field
+	subject = parser.ExtractHeaderValue(headers, []string{"Subject", "SUBJECT", "subject"})
+	if subject != "" {
+		c.logger.Debug("extracted subject", "subject", subject)
+	}
+
+	// Try to parse date with multiple formats and header names
+	sentAt = parser.ExtractDateValue(headers, c.logger)
+
+	c.logger.Debug("email info", "sender", sender, "subject", subject, "sent_at", sentAt)
+	if sender == "" {
+		sender = "unknown"
+		c.logger.Debug("using default sender", "sender", sender)
+	}
+	if subject == "" {
+		subject = "No Subject"
+		c.logger.Debug("using default subject", "subject", subject)
+	}
+
+	// Generate a unique message ID
+	uniqueID := parser.GenerateUniqueMessageID(body)
+	c.logger.Debug("generated unique ID", "unique_id", uniqueID, "uid", msg.Uid)
+
+	// Check if this message has already been downloaded using the unique ID
+	if trackingManager != nil && c.config.Email.Tracking.TrackDownloaded {
+		downloaded, err := trackingManager.IsEmailDownloaded(
+			"IMAP",
+			c.config.Email.Protocols.IMAP.Server,
+			c.config.Email.Protocols.IMAP.Username,
+			uniqueID,
+		)
+		if err != nil {
+			c.logger.Warn("failed to check if email was downloaded",
+				"unique_id", uniqueID,
+				"error", err)
+			// Continue processing this message
+		} else if downloaded {
+			c.logger.Debug("skipping already downloaded message", "unique_id", uniqueID)
+			return nil // Skip this message
+		}
 	}
 
 	// Process email content to extract attachments
 	messageID := fmt.Sprintf("%d", msg.Uid)
-
 	_, _, attachments, err := parser.ProcessEmailContent(body, messageID, c.logger)
 	if err != nil {
 		c.logger.Error("failed to process email content",
 			"error", err,
 			"uid", msg.Uid)
+		
+		// Log detailed error information
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  "IMAP",
+				Server:    c.config.Email.Protocols.IMAP.Server,
+				Username:  c.config.Email.Protocols.IMAP.Username,
+				MessageID: uniqueID,
+				Sender:    sender,
+				Subject:   subject,
+				SentAt:    sentAt,
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "process_email",
+				ErrorMsg:  fmt.Sprintf("failed to process email content: %v", err),
+				RawMessage: parser.GetRawMessageSample(body, 1000),
+			})
+		}
+			
 		return err
 	}
 
@@ -212,23 +378,61 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message) erro
 
 	// Process attachments
 	var savedAttachments []string
+	var attachmentErrors []string
+	
 	for _, a := range attachments {
 		if parser.IsAllowedAttachment(a.Filename, c.config.Email.Attachments.AllowedTypes, c.logger) {
 			content, err := io.ReadAll(a.Data)
 			if err != nil {
+				errMsg := fmt.Sprintf("failed to read attachment data: %v", err)
 				c.logger.Error("failed to read attachment data",
 					"filename", a.Filename,
 					"error", err,
 				)
+				attachmentErrors = append(attachmentErrors, errMsg)
+				
+				// Log attachment error
+				if errorLogger != nil {
+					errorLogger.LogError(errorlog.EmailError{
+						Protocol:  "IMAP",
+						Server:    c.config.Email.Protocols.IMAP.Server,
+						Username:  c.config.Email.Protocols.IMAP.Username,
+						MessageID: uniqueID,
+						Sender:    sender,
+						Subject:   subject,
+						SentAt:    sentAt,
+						ErrorTime: time.Now().UTC(),
+						ErrorType: "attachment_read",
+						ErrorMsg:  errMsg,
+					})
+				}
 				continue
 			}
 
 			finalPath, err := parser.SaveAttachment(a.Filename, content, attachmentConfig, c.logger)
 			if err != nil {
+				errMsg := fmt.Sprintf("failed to save attachment: %v", err)
 				c.logger.Error("failed to save attachment",
 					"filename", a.Filename,
 					"error", err,
 				)
+				attachmentErrors = append(attachmentErrors, errMsg)
+				
+				// Log attachment error
+				if errorLogger != nil {
+					errorLogger.LogError(errorlog.EmailError{
+						Protocol:  "IMAP",
+						Server:    c.config.Email.Protocols.IMAP.Server,
+						Username:  c.config.Email.Protocols.IMAP.Username,
+						MessageID: uniqueID,
+						Sender:    sender,
+						Subject:   subject,
+						SentAt:    sentAt,
+						ErrorTime: time.Now().UTC(),
+						ErrorType: "attachment_save",
+						ErrorMsg:  errMsg,
+					})
+				}
 				continue
 			}
 
@@ -237,12 +441,68 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message) erro
 				"uid", msg.Uid,
 				"filename", a.Filename,
 				"path", finalPath)
+		} else {
+			c.logger.Debug("skipping disallowed attachment type",
+				"filename", a.Filename)
+		}
+	}
+
+	if len(attachmentErrors) > 0 {
+		c.logger.Warn("encountered errors while processing attachments",
+			"uid", msg.Uid,
+			"error_count", len(attachmentErrors),
+			"errors", strings.Join(attachmentErrors, "; "))
+	}
+
+	// Mark email as downloaded in tracking system
+	if trackingManager != nil && c.config.Email.Tracking.TrackDownloaded {
+		err := trackingManager.MarkEmailDownloaded(
+			"IMAP",
+			c.config.Email.Protocols.IMAP.Server,
+			c.config.Email.Protocols.IMAP.Username,
+			uniqueID,
+			sender,
+			subject,
+			sentAt,
+			len(savedAttachments),
+		)
+		if err != nil {
+			c.logger.Warn("failed to mark email as downloaded",
+				"unique_id", uniqueID,
+				"error", err)
+		}
+	}
+
+	// Delete message if configured
+	if c.config.Email.Protocols.IMAP.DeleteAfterDownload {
+		c.logger.Debug("marking message for deletion", "uid", msg.Uid)
+		
+		// Create a sequence set with just this message
+		seqSet := new(imap.SeqSet)
+		seqSet.AddNum(msg.SeqNum)
+		
+		// Add the \Deleted flag
+		item := imap.FormatFlagsOp(imap.AddFlags, true)
+		flags := []interface{}{imap.DeletedFlag}
+		
+		err := c.client.Store(seqSet, item, flags, nil)
+		if err != nil {
+			c.logger.Warn("failed to mark message for deletion",
+				"uid", msg.Uid,
+				"error", err)
+		} else {
+			// Expunge to actually remove the message
+			if err := c.client.Expunge(nil); err != nil {
+				c.logger.Warn("failed to expunge deleted messages",
+					"error", err)
+			}
 		}
 	}
 
 	c.logger.Info("processed message",
 		"uid", msg.Uid,
-		"saved_attachments", len(savedAttachments))
+		"saved_attachments", len(savedAttachments),
+		"error_attachments", len(attachmentErrors))
 
 	return nil
 }
