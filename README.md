@@ -2,6 +2,9 @@
 
 A service that automatically downloads emails and extracts attachments using POP3/IMAP protocols, with support for multiple accounts and extensive configuration options.
 
+> **IMPORTANT NOTICE:** This project is currently in **Alpha Stage** and should not be used in production environments. It is under active development with core functionality still being implemented and tested. Contributors are welcome to help improve stability and feature completeness.
+
+
 ## Features
 
 ### Email Processing
@@ -11,7 +14,7 @@ A service that automatically downloads emails and extracts attachments using POP
   - [x] TLS Support
   - [x] Custom Port Configuration
   - [ ] Delete After Download Option
-- [ ] IMAP Protocol Support
+- [ ] IMAP Protocol Support (in work)
 - [x] Attachment Handling
   - [x] File Type Filtering
   - [x] Size Limits (configurable)
