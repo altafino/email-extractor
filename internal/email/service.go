@@ -183,7 +183,7 @@ func (s *Service) ProcessEmails() error {
 			return fmt.Errorf("incomplete POP3 configuration: server, username and password are required")
 		}
 
-		// Create email config from settings
+		// Create email config from settings for pop3
 		emailCfg := models.EmailConfig{
 			Protocol:            "pop3",
 			Server:              s.cfg.Email.Protocols.POP3.Server,
