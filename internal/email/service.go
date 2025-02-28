@@ -111,19 +111,44 @@ func (s *Service) ProcessEmails() error {
 			"username", s.cfg.Email.Protocols.IMAP.Username,
 		)
 
-		imapClient, err := NewIMAPClient(s.cfg, s.logger)
+		// Validate required IMAP settings
+		if s.cfg.Email.Protocols.IMAP.Server == "" ||
+			s.cfg.Email.Protocols.IMAP.Username == "" ||
+			s.cfg.Email.Protocols.IMAP.Password == "" {
+			return fmt.Errorf("incomplete IMAP configuration: server, username and password are required")
+		}
+
+		// Create email config from settings
+		emailCfg := models.EmailConfig{
+			Protocol:  "imap",
+			Server:    s.cfg.Email.Protocols.IMAP.Server,
+			Port:      s.cfg.Email.Protocols.IMAP.DefaultPort,
+			Username:  s.addDomainIfNeeded(s.cfg.Email.Protocols.IMAP.Username, s.cfg.Email.Protocols.IMAP.Server),
+			Password:  s.cfg.Email.Protocols.IMAP.Password,
+			EnableTLS: s.cfg.Email.Protocols.IMAP.Security.TLS.Enabled,
+			// DeleteAfterDownload: s.cfg.Email.Protocols.IMAP.DeleteAfterDownload,
+			// Folders:             s.cfg.Email.Protocols.IMAP.Folders,
+		}
+		s.logger.Info("emailCfg", "emailCfg", emailCfg)
+
+		client, err := NewIMAPClient(s.cfg, s.logger)
 		if err != nil {
 			return fmt.Errorf("failed to create IMAP client: %w", err)
 		}
-		defer imapClient.Close()
+		defer client.Close()
 
-		if err := imapClient.Connect(context.Background()); err != nil {
+		// Connect to the IMAP server before fetching messages
+		if err := client.Connect(context.Background()); err != nil {
 			return fmt.Errorf("failed to connect to IMAP server: %w", err)
 		}
 
-		if err := imapClient.FetchMessages(context.Background()); err != nil {
-			return fmt.Errorf("failed to fetch IMAP messages: %w", err)
+		// Now fetch messages after connection is established
+		if err := client.FetchMessages(context.Background()); err != nil {
+			return fmt.Errorf("failed to fetch messages: %w", err)
 		}
+
+		// The results variable is no longer needed since FetchMessages returns an error
+		// results := client.FetchMessages(context.Background())
 	}
 
 	// Process POP3 if enabled
@@ -214,7 +239,7 @@ func (s *Service) ProcessEmails() error {
 	return nil
 }
 
-func (s *Service) addDomainIfNeeded(username, server string) string {
+func (s *Service) addDomainIfNeeded(username string, server string) string {
 	if strings.Contains(username, "@") {
 		return username
 	}
