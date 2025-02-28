@@ -3,7 +3,9 @@ package email
 import (
 	"context"
 	"crypto/tls"
+
 	"fmt"
+
 	"time"
 
 	"github.com/altafino/email-extractor/internal/types"
@@ -30,45 +32,70 @@ func NewIMAPClient(config *types.Config, logger Logger) (*IMAPClient, error) {
 
 // Connect establishes a connection to the IMAP server
 func (c *IMAPClient) Connect(ctx context.Context) error {
-	var err error
 	server := fmt.Sprintf("%s:%d", c.config.Email.Protocols.IMAP.Server, c.config.Email.Protocols.IMAP.DefaultPort)
-
-	// Set connection timeout
-	timeout := time.Duration(c.config.Email.DefaultTimeout) * time.Second
-
-	// Log connection attempt with obfuscated password
+	
 	c.logger.Info("connecting to IMAP server",
 		"server", c.config.Email.Protocols.IMAP.Server,
 		"port", c.config.Email.Protocols.IMAP.DefaultPort,
 		"tls_enabled", c.config.Email.Protocols.IMAP.Security.TLS.Enabled,
 		"username", c.config.Email.Protocols.IMAP.Username,
-		"password", "********", // Obfuscated password
 	)
 
-	if c.config.Email.Protocols.IMAP.Security.TLS.Enabled {
-		// Configure TLS
+	var err error
+	
+	// For port 143, always use plain connection first, then STARTTLS
+	if c.config.Email.Protocols.IMAP.DefaultPort == 143 {
+		c.logger.Debug("using port 143, starting with plain connection")
+		c.client, err = client.Dial(server)
+		if err != nil {
+			return fmt.Errorf("failed to connect to IMAP server: %w", err)
+		}
+		
+		// If TLS is enabled, use STARTTLS to upgrade the connection
+		if c.config.Email.Protocols.IMAP.Security.TLS.Enabled {
+			c.logger.Debug("upgrading connection with STARTTLS")
+			tlsConfig := &tls.Config{
+				ServerName:         c.config.Email.Protocols.IMAP.Server,
+				MinVersion:         tls.VersionTLS12,
+				InsecureSkipVerify: !c.config.Email.Protocols.IMAP.Security.TLS.VerifyCert,
+			}
+			
+			if err := c.client.StartTLS(tlsConfig); err != nil {
+				c.logger.Warn("STARTTLS failed, continuing with plain connection", "error", err)
+				// Continue with plain connection if STARTTLS fails
+			}
+		}
+	} else if c.config.Email.Protocols.IMAP.Security.TLS.Enabled {
+		// For other ports with TLS enabled (like 993), use direct TLS
+		c.logger.Debug("using direct TLS connection")
 		tlsConfig := &tls.Config{
 			ServerName:         c.config.Email.Protocols.IMAP.Server,
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: !c.config.Email.Protocols.IMAP.Security.TLS.VerifyCert,
 		}
+		
 		c.client, err = client.DialTLS(server, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("failed to connect to IMAP server: %w", err)
+		}
 	} else {
+		// For other ports without TLS, use plain connection
+		c.logger.Debug("using plain connection")
 		c.client, err = client.Dial(server)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to connect to IMAP server: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to connect to IMAP server: %w", err)
+		}
 	}
 
 	// Set client timeout
-	c.client.Timeout = timeout
+	c.client.Timeout = time.Duration(c.config.Email.DefaultTimeout) * time.Second
 
 	// Login
 	if err := c.client.Login(c.config.Email.Protocols.IMAP.Username, c.config.Email.Protocols.IMAP.Password); err != nil {
 		return fmt.Errorf("IMAP login failed: %w", err)
 	}
 
+	c.logger.Info("successfully connected to IMAP server and logged in")
 	return nil
 }
 
