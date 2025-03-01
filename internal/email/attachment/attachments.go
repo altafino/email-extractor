@@ -1,4 +1,4 @@
-package parser
+package attachment
 
 import (
 	"bytes"
@@ -9,8 +9,6 @@ import (
 	"math/rand"
 	"mime"
 	"mime/quotedprintable"
-	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -323,130 +321,8 @@ type AttachmentConfig struct {
 
 // SaveAttachment saves attachment content to a file with proper naming and permissions
 func SaveAttachment(filename string, content []byte, config AttachmentConfig, logger *slog.Logger) (string, error) {
-	// Validate content size
-	if int64(len(content)) > config.MaxSize {
-		return "", fmt.Errorf("attachment size %d exceeds maximum allowed size %d", len(content), config.MaxSize)
-	}
-
-	// First sanitize if configured (before pattern application)
-	if config.SanitizeFilenames {
-		filename = SanitizeFilename(filename)
-	}
-
-	// Apply the naming pattern
-	filename = GenerateFilename(filename, time.Now().UTC(), config.FilenamePattern)
-
-	// Ensure filename has correct extension
-	ext := strings.ToLower(filepath.Ext(filename))
-	baseFilename := strings.TrimSuffix(filename, ext)
-
-	// If the extension is uppercase, convert it to lowercase
-	if ext != strings.ToLower(ext) {
-		filename = baseFilename + strings.ToLower(ext)
-	}
-
-	// If no extension, try to detect from content
-	if ext == "" {
-		contentType := http.DetectContentType(content)
-		if mimeExt, ok := MimeToExt[contentType]; ok {
-			filename = filename + mimeExt
-			ext = mimeExt
-		}
-	}
-
-	// Sanitize filename if configured
-	if config.SanitizeFilenames {
-		filename = SanitizeFilename(filename)
-	}
-
-	// Process storage path with date variables
-	now := time.Now().UTC()
-	storagePath := config.StoragePath
-
-	// Check if the storage path contains variables
-	hasVars := strings.Contains(storagePath, "${")
-
-	logger.Debug("processing storage path",
-		"original", storagePath,
-		"has_vars", hasVars,
-		"account", config.AccountName)
-
-	// Replace variables in storage path
-	if hasVars {
-		// Create a map of all replacements to ensure consistency
-		replacements := map[string]string{
-			"${YYYY}":    now.Format("2006"),
-			"${YY}":      now.Format("06"),
-			"${MM}":      now.Format("01"),
-			"${DD}":      now.Format("02"),
-			"${HH}":      now.Format("15"),
-			"${mm}":      now.Format("04"),
-			"${ss}":      now.Format("05"),
-			"${account}": config.AccountName,
-		}
-
-		// Apply all replacements
-		for pattern, replacement := range replacements {
-			storagePath = strings.ReplaceAll(storagePath, pattern, replacement)
-		}
-
-		logger.Debug("replaced variables",
-			"processed_path", storagePath)
-	}
-
-	// Determine the final directory path
-	var finalDir string
-
-	if config.PreserveStructure && !hasVars {
-		// Only use the old date-based structure if PreserveStructure is true
-		// AND there are no variables in the path
-		dateDir := now.Format("2006/01/02")
-		finalDir = filepath.Join(storagePath, dateDir)
-	} else {
-		// Otherwise use the processed path directly
-		finalDir = storagePath
-	}
-
-	logger.Debug("final directory path",
-		"final_dir", finalDir)
-
-	// Create the directory
-	if err := os.MkdirAll(finalDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create storage directory: %w", err)
-	}
-
-	// Combine directory and filename
-	finalPath := filepath.Join(finalDir, filename)
-
-	logger.Debug("final attachment path",
-		"final_path", finalPath)
-
-	// Check if file already exists
-	if _, err := os.Stat(finalPath); err == nil {
-		// File exists, append timestamp to filename
-		ext := filepath.Ext(finalPath)
-		base := strings.TrimSuffix(finalPath, ext)
-		// Ensure we have an extension
-		if ext == "" {
-			ext = filepath.Ext(filename)
-		}
-		finalPath = fmt.Sprintf("%s_%d%s", base, time.Now().UnixNano(), ext)
-	}
-
-	// Create file with restricted permissions
-	f, err := os.OpenFile(finalPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
-	if err != nil {
-		return "", fmt.Errorf("failed to create file: %w", err)
-	}
-	defer f.Close()
-
-	// Write content
-	if _, err := f.Write(content); err != nil {
-		os.Remove(finalPath) // Clean up on error
-		return "", fmt.Errorf("failed to write file content: %w", err)
-	}
-
-	return finalPath, nil
+	storage := NewFileStorage(logger)
+	return storage.Save(filename, content, config)
 }
 
 // SanitizeFilename removes potentially dangerous characters from filenames

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"github.com/altafino/email-extractor/internal/email/attachment"
 
 	"fmt"
 
@@ -367,7 +368,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 		"attachment_count", len(attachments))
 
 	// Create attachment config with account name
-	attachmentConfig := parser.AttachmentConfig{
+	attachmentConfig := attachment.AttachmentConfig{
 		StoragePath:       c.config.Email.Attachments.StoragePath,
 		MaxSize:           int64(c.config.Email.Attachments.MaxSize),
 		AllowedTypes:      c.config.Email.Attachments.AllowedTypes,
@@ -382,7 +383,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 	var attachmentErrors []string
 
 	for _, a := range attachments {
-		if parser.IsAllowedAttachment(a.Filename, c.config.Email.Attachments.AllowedTypes, c.logger) {
+		if attachment.IsAllowedAttachment(a.Filename, c.config.Email.Attachments.AllowedTypes, c.logger) {
 			content, err := io.ReadAll(a.Data)
 			if err != nil {
 				errMsg := fmt.Sprintf("failed to read attachment data: %v", err)
@@ -410,7 +411,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 				continue
 			}
 
-			finalPath, err := parser.SaveAttachment(a.Filename, content, attachmentConfig, c.logger)
+			finalPath, err := attachment.SaveAttachment(a.Filename, content, attachmentConfig, c.logger)
 			if err != nil {
 				errMsg := fmt.Sprintf("failed to save attachment: %v", err)
 				c.logger.Error("failed to save attachment",

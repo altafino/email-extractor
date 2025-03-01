@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/altafino/email-extractor/internal/email/attachment"
 	"log/slog"
 	"net/mail"
 	"strings"
@@ -55,7 +56,7 @@ func GetExtensionFromContentType(contentType string) string {
 	mainType = strings.TrimSpace(strings.ToLower(mainType))
 
 	// Check if we have a mapping for this content type
-	if ext, ok := MimeToExt[mainType]; ok {
+	if ext, ok := attachment.MimeToExt[mainType]; ok {
 		return ext
 	}
 
@@ -161,7 +162,7 @@ func ProcessEmailContent(content []byte, messageID string, logger *slog.Logger) 
 				}
 
 				// Try multipart parser with the boundary
-				attachments, err = ExtractAttachmentsMultipart(content, boundary, logger)
+				attachments, err = attachment.ExtractAttachmentsMultipart(content, boundary, logger)
 				if err != nil {
 					boundaryMarker := []byte("--" + boundary)
 					crlfBoundaryMarker := []byte("\r\n--" + boundary)
@@ -180,7 +181,7 @@ func ProcessEmailContent(content []byte, messageID string, logger *slog.Logger) 
 
 	// If multipart parsing failed, try parsemail as fallback
 	if len(attachments) == 0 {
-		email, err := ParseEmail(content, logger)
+		email, err := attachment.ParseEmail(content, logger)
 		if err != nil {
 			return content, boundary, nil, fmt.Errorf("failed to parse email: %w", err)
 		}
