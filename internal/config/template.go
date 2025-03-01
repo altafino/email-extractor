@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"dario.cat/mergo"
 	"github.com/altafino/email-extractor/internal/types"
-	"github.com/imdario/mergo"
 	yaml "gopkg.in/yaml.v3"
 )
 
