@@ -337,8 +337,8 @@ func extractMessageIDHeader(content []byte) string {
 	return ""
 }
 
-func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
-	ctx := context.Background() // should come in function arguments as in imap.go
+func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
+
 	c.logger.Info("starting email download")
 
 	// Create tracking manager

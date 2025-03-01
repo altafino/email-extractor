@@ -133,12 +133,12 @@ func (s *Service) ProcessEmails() error {
 
 		// Create email config from settings
 		emailCfg := models.EmailConfig{
-			Protocol:  "imap",
-			Server:    s.cfg.Email.Protocols.IMAP.Server,
-			Port:      s.cfg.Email.Protocols.IMAP.DefaultPort,
-			Username:  s.addDomainIfNeeded(s.cfg.Email.Protocols.IMAP.Username, s.cfg.Email.Protocols.IMAP.Server),
-			Password:  s.cfg.Email.Protocols.IMAP.Password,
-			EnableTLS: s.cfg.Email.Protocols.IMAP.Security.TLS.Enabled,
+			Protocol:            "imap",
+			Server:              s.cfg.Email.Protocols.IMAP.Server,
+			Port:                s.cfg.Email.Protocols.IMAP.DefaultPort,
+			Username:            s.addDomainIfNeeded(s.cfg.Email.Protocols.IMAP.Username, s.cfg.Email.Protocols.IMAP.Server),
+			Password:            s.cfg.Email.Protocols.IMAP.Password,
+			EnableTLS:           s.cfg.Email.Protocols.IMAP.Security.TLS.Enabled,
 			DeleteAfterDownload: s.cfg.Email.Protocols.IMAP.DeleteAfterDownload,
 			Folders:             s.cfg.Email.Protocols.IMAP.Folders,
 		}
@@ -197,7 +197,7 @@ func (s *Service) ProcessEmails() error {
 		}
 
 		client := NewPOP3Client(s.cfg, s.logger)
-		results, err := client.DownloadEmails(models.EmailDownloadRequest{
+		results, err := client.DownloadEmails(context.Background(), models.EmailDownloadRequest{
 			Config: emailCfg,
 			Async:  false,
 		})
