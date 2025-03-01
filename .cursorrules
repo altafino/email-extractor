@@ -27,5 +27,6 @@ Be concise in explanations, but provide brief comments for complex logic or Go-s
 If unsure about a best practice or implementation detail, say so instead of guessing.
 Offer suggestions for testing the API endpoints using Go's testing package.
 Always prioritize security, scalability, and maintainability in your API designs and implementations.
+Update the Readme.md file feature list with the implemented features.
 
 Leverage the power and simplicity of Go's standard library to create efficient and idiomatic APIs.
