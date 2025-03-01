@@ -15,14 +15,6 @@ type Scheduler struct {
 	service *email.Service
 }
 
-// NewScheduler creates a new scheduler instance
-func NewScheduler(configs []*types.Config, logger *slog.Logger) *Scheduler {
-	return &Scheduler{
-		configs: configs,
-		logger:  logger,
-	}
-}
-
 // Start begins the scheduling of email processing
 func (s *Scheduler) Start(ctx context.Context) error {
 	for _, cfg := range s.configs {

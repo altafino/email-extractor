@@ -8,6 +8,14 @@ import (
 	"github.com/golang-cz/devslog"
 )
 
+// Logger interface defines the logging methods we need
+type Logger interface {
+	Debug(msg string, args ...any)
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+}
+
 // parseLevel converts string level to slog.Level
 func parseLevel(level string) slog.Level {
 	switch level {

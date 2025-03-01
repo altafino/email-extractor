@@ -15,41 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/altafino/email-extractor/internal/utility/u_io"
-
 	"github.com/DusanKasan/parsemail"
 	"github.com/jhillyerd/enmime/mediatype"
 )
-
-// SaveAttachmentToFile saves attachment data to a file
-func SaveAttachmentToFile(data []byte, filename string, outputDir string, logger *slog.Logger) (string, error) {
-	// Create output directory if it doesn't exist
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	// Clean filename to remove any potentially dangerous characters
-	safeFilename := u_io.CleanFilename(filename)
-
-	// Ensure filename is not empty
-	if safeFilename == "" {
-		safeFilename = fmt.Sprintf("attachment_%d%s", time.Now().UnixNano(), ".bin")
-	}
-
-	// Create full path
-	outputPath := filepath.Join(outputDir, safeFilename)
-
-	// Check if file already exists, append number if it does
-	outputPath = u_io.EnsureUniqueFilename(outputPath)
-
-	// Write file
-	if err := os.WriteFile(outputPath, data, 0644); err != nil {
-		return "", fmt.Errorf("failed to write attachment file: %w", err)
-	}
-
-	logger.Debug("saved attachment", "filename", safeFilename, "path", outputPath)
-	return outputPath, nil
-}
 
 // ExtractAttachmentsMultipart extracts attachments from multipart content
 func ExtractAttachmentsMultipart(content []byte, boundary string, logger *slog.Logger) ([]parsemail.Attachment, error) {
@@ -397,8 +365,8 @@ func SaveAttachment(filename string, content []byte, config AttachmentConfig, lo
 
 	// Check if the storage path contains variables
 	hasVars := strings.Contains(storagePath, "${")
-	
-	logger.Debug("processing storage path", 
+
+	logger.Debug("processing storage path",
 		"original", storagePath,
 		"has_vars", hasVars,
 		"account", config.AccountName)
@@ -416,13 +384,13 @@ func SaveAttachment(filename string, content []byte, config AttachmentConfig, lo
 			"${ss}":      now.Format("05"),
 			"${account}": config.AccountName,
 		}
-		
+
 		// Apply all replacements
 		for pattern, replacement := range replacements {
 			storagePath = strings.ReplaceAll(storagePath, pattern, replacement)
 		}
-		
-		logger.Debug("replaced variables", 
+
+		logger.Debug("replaced variables",
 			"processed_path", storagePath)
 	}
 
@@ -439,7 +407,7 @@ func SaveAttachment(filename string, content []byte, config AttachmentConfig, lo
 		finalDir = storagePath
 	}
 
-	logger.Debug("final directory path", 
+	logger.Debug("final directory path",
 		"final_dir", finalDir)
 
 	// Create the directory
