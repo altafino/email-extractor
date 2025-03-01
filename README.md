@@ -25,6 +25,10 @@ A service that automatically downloads emails and extracts attachments using POP
   - [x] Duplicate File Handling
   - [x] Filename Sanitization
   - [x] Nested Attachment Scanning
+  - [x] Storage Interface
+    - [x] File Storage
+    - [ ] Google Drive (in work)
+    - [ ] S3 compatible Bucket Storage
 
 ### Security
 - [x] TLS Configuration
@@ -140,7 +144,7 @@ The service is in active development with core functionality working:
 - [x] Attachment extraction
 - [x] Configuration management
 - [x] Monitoring setup
-- [ ] IMAP support (planned)
+- [x] IMAP support
 - [ ] OAuth2 integration (planned)
 - [ ] Web UI (planned)
 - [ ] API (planned)
