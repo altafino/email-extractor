@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"github.com/altafino/email-extractor/internal/email/attachment"
 	"io"
 	"log/slog"
 	"mime"
@@ -600,7 +601,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 			"attachment_count", len(attachments))
 
 		// Create attachment config with account name
-		attachmentConfig := parser.AttachmentConfig{
+		attachmentConfig := attachment.AttachmentConfig{
 			StoragePath:       c.cfg.Email.Attachments.StoragePath,
 			MaxSize:           int64(c.cfg.Email.Attachments.MaxSize),
 			AllowedTypes:      c.cfg.Email.Attachments.AllowedTypes,
@@ -613,7 +614,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 		// Process attachments
 		var attachmentErrors []string
 		for _, a := range attachments {
-			if parser.IsAllowedAttachment(a.Filename, c.cfg.Email.Attachments.AllowedTypes, c.logger) {
+			if attachment.IsAllowedAttachment(a.Filename, c.cfg.Email.Attachments.AllowedTypes, c.logger) {
 				content, err := io.ReadAll(a.Data)
 				if err != nil {
 					errMsg := fmt.Sprintf("failed to read attachment data: %v", err)
@@ -641,7 +642,7 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 					continue
 				}
 
-				finalPath, err := parser.SaveAttachment(a.Filename, content, attachmentConfig, c.logger)
+				finalPath, err := attachment.SaveAttachment(a.Filename, content, attachmentConfig, c.logger)
 				if err != nil {
 					errMsg := fmt.Sprintf("failed to save attachment: %v", err)
 					c.logger.Error("failed to save attachment",
