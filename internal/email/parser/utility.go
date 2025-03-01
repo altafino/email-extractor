@@ -274,19 +274,3 @@ func GetRawMessageSample(content []byte, maxSize int) string {
 	// Otherwise return the first part
 	return string(content[:maxSize])
 }
-
-// Min returns the smaller of two integers
-func Min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// Max returns the larger of two integers
-func Max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
