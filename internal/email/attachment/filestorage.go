@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// FileStorage implementation of Save
+// FileStorage implementation of Save to store attachments on disk
 func (fs *FileStorage) Save(filename string, content []byte, config AttachmentConfig) (string, error) {
 	// Validate content size
 	if int64(len(content)) > config.MaxSize {
