@@ -5,10 +5,10 @@ go 1.24
 require (
 	github.com/DusanKasan/parsemail v1.2.0
 	github.com/emersion/go-imap v1.2.1
-	github.com/fsnotify/fsnotify v1.7.0
+	github.com/fsnotify/fsnotify v1.8.0
 	github.com/go-co-op/gocron v1.37.0
 	github.com/golang-cz/devslog v0.0.11
-	github.com/google/uuid v1.4.0
+	github.com/google/uuid v1.6.0
 	github.com/imdario/mergo v0.3.16
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/knadh/go-pop3 v0.3.0
@@ -19,8 +19,7 @@ require (
 )
 
 require (
-	cloud.google.com/go/compute v1.23.3 // indirect
-	cloud.google.com/go/compute/metadata v0.2.3 // indirect
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/cention-sany/utf7 v0.0.0-20170124080048-26cad61bd60a // indirect
 	github.com/emersion/go-message v0.15.0 // indirect
 	github.com/emersion/go-sasl v0.0.0-20200509203442-7bfe0ed36a21 // indirect
@@ -47,13 +46,12 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
-	golang.org/x/crypto v0.21.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
-	golang.org/x/net v0.23.0 // indirect
-	golang.org/x/oauth2 v0.15.0 // indirect
-	golang.org/x/sys v0.18.0 // indirect
-	golang.org/x/text v0.14.0 // indirect
-	google.golang.org/appengine v1.6.7 // indirect
+	golang.org/x/net v0.33.0 // indirect
+	golang.org/x/oauth2 v0.27.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20231120223509-83a465c0220f // indirect
 	google.golang.org/grpc v1.59.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
