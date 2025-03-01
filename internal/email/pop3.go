@@ -2,6 +2,7 @@ package email
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
@@ -337,6 +338,7 @@ func extractMessageIDHeader(content []byte) string {
 }
 
 func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
+	ctx := context.Background() // should come in function arguments as in imap.go
 	c.logger.Info("starting email download")
 
 	// Create tracking manager
@@ -642,7 +644,12 @@ func (c *POP3Client) DownloadEmails(req models.EmailDownloadRequest) ([]models.D
 					continue
 				}
 
-				finalPath, err := attachment.SaveAttachment(a.Filename, content, attachmentConfig, c.logger)
+				storageConfig := attachment.StorageConfig{
+					Type:            attachment.StorageTypeFile, // or StorageTypeGDrive
+					CredentialsFile: "path/to/credentials.json", // only needed for GDrive
+					ParentFolderID:  "folder_id",                // only needed for GDrive
+				}
+				finalPath, err := attachment.SaveAttachment(ctx, a.Filename, content, attachmentConfig, storageConfig, c.logger)
 				if err != nil {
 					errMsg := fmt.Sprintf("failed to save attachment: %v", err)
 					c.logger.Error("failed to save attachment",

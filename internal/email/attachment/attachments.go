@@ -2,6 +2,7 @@ package attachment
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -319,9 +320,15 @@ type AttachmentConfig struct {
 	AccountName       string
 }
 
-// SaveAttachment saves attachment content to a file with proper naming and permissions
-func SaveAttachment(filename string, content []byte, config AttachmentConfig, logger *slog.Logger) (string, error) {
-	storage := NewFileStorage(logger)
+// SaveAttachment saves attachment content using the configured storage
+func SaveAttachment(ctx context.Context, filename string, content []byte, config AttachmentConfig, storageConfig StorageConfig, logger *slog.Logger) (string, error) {
+	// Create storage instance based on configuration
+	storage, err := NewStorage(ctx, storageConfig, logger)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize storage: %w", err)
+	}
+
+	// Use the storage implementation to save the attachment
 	return storage.Save(filename, content, config)
 }
 

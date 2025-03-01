@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"github.com/altafino/email-extractor/internal/email/attachment"
 
 	"fmt"
 
@@ -16,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altafino/email-extractor/internal/email/attachment"
 	"github.com/altafino/email-extractor/internal/email/parser"
 	"github.com/altafino/email-extractor/internal/errorlog"
 	"github.com/altafino/email-extractor/internal/tracking"
@@ -411,7 +411,12 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 				continue
 			}
 
-			finalPath, err := attachment.SaveAttachment(a.Filename, content, attachmentConfig, c.logger)
+			storageConfig := attachment.StorageConfig{
+				Type:            attachment.StorageTypeFile, // or StorageTypeGDrive
+				CredentialsFile: "path/to/credentials.json", // only needed for GDrive
+				ParentFolderID:  "folder_id",                // only needed for GDrive
+			}
+			finalPath, err := attachment.SaveAttachment(ctx, a.Filename, content, attachmentConfig, storageConfig, c.logger)
 			if err != nil {
 				errMsg := fmt.Sprintf("failed to save attachment: %v", err)
 				c.logger.Error("failed to save attachment",
