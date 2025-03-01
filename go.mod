@@ -11,7 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/imdario/mergo v0.3.16
 	github.com/jhillyerd/enmime v1.3.0
-	github.com/knadh/go-pop3 v0.3.0
+	github.com/knadh/go-pop3 v1.0.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.19.0
 	google.golang.org/api v0.223.0

@@ -58,8 +58,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jhillyerd/enmime v1.3.0 h1:LV5kzfLidiOr8qRGIpYYmUZCnhrPbcFAnAFUnWn99rw=
 github.com/jhillyerd/enmime v1.3.0/go.mod h1:6c6jg5HdRRV2FtvVL69LjiX1M8oE0xDX9VEhV3oy4gs=
-github.com/knadh/go-pop3 v0.3.0 h1:h6wh28lyT/vUBMSiSwDDUXZjHH6zL8CM8WYCPbETM4Y=
-github.com/knadh/go-pop3 v0.3.0/go.mod h1:a5kUJzrBB6kec+tNJl+3Z64ROgByKBdcyub+mhZMAfI=
+github.com/knadh/go-pop3 v1.0.0 h1:ICAINSl+uqwwCW6p7RjhY+AbPWC2KMLtdQCpuiSqe1g=
+github.com/knadh/go-pop3 v1.0.0/go.mod h1:a5kUJzrBB6kec+tNJl+3Z64ROgByKBdcyub+mhZMAfI=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=
 github.com/kr/pretty v0.3.0/go.mod h1:640gp4NfQd8pI5XOwp5fnNeVWj67G7CFk/SaSQn7NBk=
