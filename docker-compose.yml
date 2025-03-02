@@ -15,12 +15,15 @@ services:
       - type: bind
         source: /opt/email-extractor/data/attachments
         target: /data/attachments
+      - type: bind
+        source: /opt/email-extractor/config/keys
+        target: /config/keys
+        read_only: true
     environment:
       - TZ=UTC
       - DEBUG=true
       - LOG_LEVEL=debug
       - CONFIG_FILES=default.config.yaml
-      - ATTACHMENT_STORAGE_PATH=/data/attachments      
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:8080/health"]
