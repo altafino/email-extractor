@@ -69,7 +69,10 @@ email:
     preserve_structure: true  # maintain folder structure from email
     scan_nested: true  # scan inside zip files for attachments
     sanitize_filenames: true # remove potentially dangerous characters
-
+    storage:
+      type: "gdrive"
+      credentials_file: "/home/stefan/data/credentials.json"
+      parent_folder_id: "1234567890abcdef"
 security:
   allowed_ips:
     - "127.0.0.1"

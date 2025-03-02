@@ -84,11 +84,16 @@ type Config struct {
 		Attachments struct {
 			AllowedTypes      []string `yaml:"allowed_types"`
 			MaxSize           int64    `yaml:"max_size"`
-			StoragePath       string   `yaml:"storage_path"`
+			StoragePath       string   `yaml:"storage_path"` // for file storage
 			NamingPattern     string   `yaml:"naming_pattern"`
 			PreserveStructure bool     `yaml:"preserve_structure"`
 			SanitizeFilenames bool     `yaml:"sanitize_filenames"`
 			HandleDuplicates  string   `yaml:"handle_duplicates"`
+			Storage           struct {
+				Type            string `yaml:"type"`                               // "file" or "gdrive"
+				CredentialsFile string `yaml:"credentials_file" yaml:",omitempty"` // Path to Google Drive credentials JSON file
+				ParentFolderID  string `yaml:"parent_folder_id" yaml:",omitempty"` // Google Drive folder ID where files will be stored
+			} `yaml:"storage"`
 		} `yaml:"attachments"`
 		Tracking struct {
 			Enabled         bool   `yaml:"enabled"`
