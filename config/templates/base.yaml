@@ -82,6 +82,10 @@ email:
     scan_nested: true
     sanitize_filenames: true
     handle_duplicates: "increment"
+    storage:
+      type: "gdrive"
+      credentials_file: "/home/stefan/data/credentials.json"
+      parent_folder_id: "1234567890abcdef"
   tracking:
     enabled: false
     storage_type: "file"
