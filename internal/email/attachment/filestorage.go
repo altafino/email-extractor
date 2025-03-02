@@ -1,42 +1,13 @@
 package attachment
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
-
-// StorageType represents the type of storage backend
-type StorageType string
-
-const (
-	StorageTypeFile   StorageType = "file"
-	StorageTypeGDrive StorageType = "gdrive"
-)
-
-// StorageConfig holds configuration for creating storage instances
-type StorageConfig struct {
-	Type            StorageType
-	CredentialsFile string // Path to Google Drive credentials JSON file
-	ParentFolderID  string // Google Drive folder ID where files will be stored
-}
-
-// NewStorage creates a new storage instance based on the configuration
-func NewStorage(ctx context.Context, config StorageConfig, logger *slog.Logger) (AttachmentStorage, error) {
-	switch config.Type {
-	case StorageTypeFile:
-		return NewFileStorage(logger), nil
-	case StorageTypeGDrive:
-		return NewGDriveStorage(ctx, logger, config.CredentialsFile, config.ParentFolderID)
-	default:
-		return nil, fmt.Errorf("unsupported storage type: %s", config.Type)
-	}
-}
 
 // FileStorage implementation of Save to store attachments on disk
 func (fs *FileStorage) Save(filename string, content []byte, config AttachmentConfig) (string, error) {
