@@ -645,9 +645,9 @@ func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloa
 				}
 
 				storageConfig := attachment.StorageConfig{
-					Type:            attachment.StorageTypeFile, // or StorageTypeGDrive
-					CredentialsFile: "path/to/credentials.json", // only needed for GDrive
-					ParentFolderID:  "folder_id",                // only needed for GDrive
+					Type:            attachment.StorageType(c.cfg.Email.Attachments.Storage.Type),
+					CredentialsFile: c.cfg.Email.Attachments.Storage.CredentialsFile, // only needed for GDrive
+					ParentFolderID:  c.cfg.Email.Attachments.Storage.ParentFolderID,  // only needed for GDrive
 				}
 				finalPath, err := attachment.SaveAttachment(ctx, a.Filename, content, attachmentConfig, storageConfig, c.logger)
 				if err != nil {

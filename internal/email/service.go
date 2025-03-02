@@ -122,6 +122,7 @@ func (s *Service) ProcessEmails() error {
 			"config_id", s.cfg.Meta.ID,
 			"server", s.cfg.Email.Protocols.IMAP.Server,
 			"username", s.cfg.Email.Protocols.IMAP.Username,
+			"attachments", s.cfg.Email.Attachments,
 		)
 
 		// Validate required IMAP settings

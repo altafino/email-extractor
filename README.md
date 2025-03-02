@@ -18,7 +18,7 @@ A service that automatically downloads emails and extracts attachments using POP
   - [x] TLS Support
   - [x] Custom Port Configuration
 - [x] Attachment Handling
-  - [x] File Type Filtering
+  - [x] File Type Filtering (configurable)
   - [x] Size Limits (configurable)
   - [x] Custom Naming Patterns
   - [x] Date-based Directory Structure
@@ -27,8 +27,9 @@ A service that automatically downloads emails and extracts attachments using POP
   - [x] Nested Attachment Scanning
   - [x] Storage Interface
     - [x] File Storage
-    - [ ] Google Drive (in work)
+    - [x] Google Drive
     - [ ] S3 compatible Bucket Storage
+  - [ ] Filter for TimePeriod (Download only those attachments)
 
 ### Security
 - [x] TLS Configuration
