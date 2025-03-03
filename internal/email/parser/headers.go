@@ -257,24 +257,3 @@ func ExtractDateValue(headers map[string][]string, logger *slog.Logger) time.Tim
 	// If we can't parse the date, use current time
 	return time.Now().UTC()
 }
-
-// containsDigitsAndLetters checks if a string contains both digits and letters
-// which is a good heuristic for identifying date strings
-func containsDigitsAndLetters(s string) bool {
-	hasDigit := false
-	hasLetter := false
-
-	for _, r := range s {
-		if unicode.IsDigit(r) {
-			hasDigit = true
-		} else if unicode.IsLetter(r) {
-			hasLetter = true
-		}
-
-		if hasDigit && hasLetter {
-			return true
-		}
-	}
-
-	return false
-}
