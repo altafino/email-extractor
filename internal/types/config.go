@@ -36,7 +36,15 @@ type Config struct {
 				Folders             []string `yaml:"folders"`
 				UseIdle             bool     `yaml:"use_idle"`
 				DeleteAfterDownload bool     `yaml:"delete_after_download"`
-				Security            struct {
+				
+				// Add date filtering options
+				DateFilter struct {
+					Enabled bool   `yaml:"enabled"`
+					From    string `yaml:"from,omitempty"` // ISO8601 format string
+					To      string `yaml:"to,omitempty"`   // ISO8601 format string
+				} `yaml:"date_filter"`
+				
+				Security struct {
 					TLS struct {
 						Enabled    bool   `yaml:"enabled"`
 						MinVersion string `yaml:"min_version"`

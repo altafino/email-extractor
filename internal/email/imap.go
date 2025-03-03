@@ -195,6 +195,61 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 		}
 	}
 
+	// Check if the message date is within the filter range if date filtering is enabled
+	if c.config.Email.Protocols.IMAP.DateFilter.Enabled {
+		var fromDate, toDate time.Time
+		var err error
+
+		// Parse from date if provided
+		if c.config.Email.Protocols.IMAP.DateFilter.From != "" {
+			fromDate, err = time.Parse(time.RFC3339, c.config.Email.Protocols.IMAP.DateFilter.From)
+			if err != nil {
+				// Use a default if parsing fails
+				fromDate = time.Now().AddDate(0, 0, -30)
+			}
+		} else {
+			// Default to 30 days ago if not specified
+			fromDate = time.Now().AddDate(0, 0, -30)
+		}
+
+		// Parse to date if provided
+		if c.config.Email.Protocols.IMAP.DateFilter.To != "" {
+			toDate, err = time.Parse(time.RFC3339, c.config.Email.Protocols.IMAP.DateFilter.To)
+			if err != nil {
+				// Use current time if parsing fails
+				toDate = time.Now()
+			}
+		} else {
+			// Default to current time if not specified
+			toDate = time.Now()
+		}
+
+		// Get message date from envelope and convert to UTC for comparison
+		msgDate := msg.Envelope.Date.UTC()
+
+		// Convert comparison dates to UTC as well to ensure consistent comparison
+		fromDateUTC := fromDate.UTC()
+		toDateUTC := toDate.UTC()
+
+		// Debug log with all dates in UTC for clarity
+		c.logger.Debug("message date",
+			"date", msgDate.Format(time.RFC3339),
+			"from_date", fromDateUTC.Format(time.RFC3339),
+			"to_date", toDateUTC.Format(time.RFC3339),
+			"before", msgDate.Before(fromDateUTC),
+			"after", msgDate.After(toDateUTC))
+
+		// Skip message if outside date range - compare all dates in UTC
+		if msgDate.Before(fromDateUTC) || msgDate.After(toDateUTC) {
+			c.logger.Debug("skipping message outside date range",
+				"uid", msg.Uid,
+				"date", msgDate.Format(time.RFC3339),
+				"from_date", fromDateUTC.Format(time.RFC3339),
+				"to_date", toDateUTC.Format(time.RFC3339))
+			return nil
+		}
+	}
+
 	// Create a new fetch request for the message body
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(msg.SeqNum)

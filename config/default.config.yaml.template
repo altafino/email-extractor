@@ -18,16 +18,21 @@ email:
   max_concurrent: 5
   protocols:
     imap:
-      enabled: false
-      default_port: 993
+      enabled: true
+      default_port: 143
       insecure_port: 143
       idle_timeout: 60
       batch_size: 100
-      server: "${IMAP_SERVER}"
-      username: "${IMAP_USERNAME}"
-      password: "${IMAP_PASSWORD}"
+      server: "imap.server.com"
+      username: "test@server.com"
+      password: "password"
       folders: ["INBOX"]
       use_idle: false
+      delete_after_download: false
+      date_filter:
+        enabled: true
+        from: "2025-02-26T00:00:00Z"
+        to: "2025-03-04T02:59:59Z"
       security:
         tls:
           enabled: true
@@ -37,13 +42,17 @@ email:
           enabled: false
           provider: "google"
     pop3:
-      enabled: true
+      enabled: false
       default_port: 995
       insecure_port: 110
-      server: "email.server.com"  # your mail server
-      username: "a@b.com" #"${POP3_USERNAME}"  # Will be replaced with environment variable
-      password: "password" #"${POP3_PASSWORD}"  # Will be replaced with environment variable
+      server: "email.server.com"
+      username: "test@server.com"
+      password: "password"
       delete_after_download: false
+      date_filter:
+        enabled: true
+        from: "2025-01-03T00:00:00Z"
+        to: "2025-03-03T23:59:59Z"
       security:
         tls:
           enabled: true
@@ -52,10 +61,6 @@ email:
         oauth2:
           enabled: false
           provider: "google"
-      date_filter:
-        enabled: false
-        from: ""  # ISO8601 format: "2023-01-01T00:00:00Z"
-        to: ""    # ISO8601 format: "2023-12-31T23:59:59Z"
   retry:
     max_attempts: 3
     delay: 5
