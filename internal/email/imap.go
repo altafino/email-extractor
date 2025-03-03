@@ -316,7 +316,6 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 
 	// Generate a unique message ID
 	uniqueID := parser.GenerateUniqueMessageID(body)
-	c.logger.Debug("generated unique ID", "unique_id", uniqueID, "uid", msg.Uid)
 
 	// Check if this message has already been downloaded using the unique ID
 	if trackingManager != nil && c.config.Email.Tracking.TrackDownloaded {

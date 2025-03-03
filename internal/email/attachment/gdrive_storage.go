@@ -53,23 +53,13 @@ func (gd *GDriveStorage) Save(filename string, content []byte, config Attachment
 	// Apply the naming pattern
 	finalFilename := ""
 	if config.FilenamePattern != "" {
-		// Log the pattern and base filename
-		gd.logger.Debug("applying filename pattern",
-			"pattern", config.FilenamePattern,
-			"base_filename", baseFilename)
 
 		// Apply pattern to the base filename (without extension)
 		patternedFilename := GenerateFilename(baseFilename, time.Now().UTC(), config.FilenamePattern)
 
-		// Log the result after pattern application
-		gd.logger.Debug("pattern applied",
-			"patterned_filename", patternedFilename)
-
 		// Sanitize the patterned filename if needed
 		if config.SanitizeFilenames {
 			patternedFilename = SanitizeFilename(patternedFilename)
-			gd.logger.Debug("sanitized patterned filename",
-				"sanitized_filename", patternedFilename)
 		}
 
 		// Make sure the extension is preserved
@@ -80,8 +70,6 @@ func (gd *GDriveStorage) Save(filename string, content []byte, config Attachment
 	} else {
 		finalFilename = baseFilename + ext
 	}
-
-	gd.logger.Debug("final filename", "filename", finalFilename)
 
 	// Process storage path with date variables
 	now := time.Now().UTC()
@@ -97,7 +85,6 @@ func (gd *GDriveStorage) Save(filename string, content []byte, config Attachment
 	}
 
 	// Create file metadata
-	gd.logger.Debug("creating file metadata", "filename", finalFilename, "folderID", folderID)
 	file := &drive.File{
 		Name:     finalFilename,
 		Parents:  []string{folderID},
