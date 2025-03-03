@@ -113,282 +113,6 @@ func (c *POP3Client) Connect(emailCfg models.EmailConfig) (*pop3.Conn, error) {
 	return conn, nil
 }
 
-// DownloadEmails downloads emails from POP3 server with improved error handling and performance
-func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
-	c.logger.Info("starting email download",
-		"server", req.Config.Server,
-		"username", req.Config.Username)
-
-	// Initialize managers
-	trackingManager, errorLogger := c.initializeManagers()
-	defer c.closeManagers(trackingManager, errorLogger)
-
-	// Connect to POP3 server
-	conn, err := c.Connect(req.Config)
-	if err != nil {
-		c.logConnectionError(err, errorLogger, req.Config)
-		return nil, err
-	}
-	defer conn.Quit()
-
-	// Get mailbox statistics
-	count, size, err := c.getMailboxStats(conn, errorLogger, req.Config)
-	if err != nil {
-		return nil, err
-	}
-	c.logger.Info("mailbox stats", "messages", count, "total_size", size)
-
-	// Get list of all messages
-	msgList, err := c.getMessageList(conn, errorLogger, req.Config)
-	if err != nil {
-		return nil, err
-	}
-
-	// Initialize date filtering
-	dateFilter := c.initializeDateFilter()
-
-	// Process messages
-	results := make([]models.DownloadResult, 0, len(msgList))
-	for _, popMsg := range msgList {
-		// Check for context cancellation
-		if ctx.Err() != nil {
-			c.logger.Warn("context cancelled, stopping email download", "error", ctx.Err())
-			break
-		}
-
-		// Process individual message
-		result, processed := c.processMessage(ctx, conn, popMsg, trackingManager, errorLogger, dateFilter, req.Config)
-		if processed {
-			results = append(results, result)
-		}
-	}
-
-	c.logger.Info("completed email download",
-		"server", req.Config.Server,
-		"username", req.Config.Username,
-		"processed_messages", len(results))
-
-	return results, nil
-}
-
-// Helper functions
-
-// initializeManagers sets up tracking and error logging managers
-func (c *POP3Client) initializeManagers() (*tracking.Manager, *errorlog.Manager) {
-	var trackingManager *tracking.Manager
-	var errorLogger *errorlog.Manager
-	var err error
-
-	// Create tracking manager
-	if c.cfg.Email.Tracking.Enabled {
-		trackingManager, err = tracking.NewManager(c.cfg, c.logger)
-		if err != nil {
-			c.logger.Error("failed to initialize tracking manager", "error", err)
-			// Continue without tracking if it fails
-		}
-	}
-
-	// Create error logging manager
-	if c.cfg.Email.ErrorLogging.Enabled {
-		c.logger.Debug("initializing error logger",
-			"enabled", c.cfg.Email.ErrorLogging.Enabled,
-			"storage_path", c.cfg.Email.ErrorLogging.StoragePath)
-
-		errorLogger, err = errorlog.NewManager(c.cfg, c.logger)
-		if err != nil {
-			c.logger.Error("failed to initialize error logger",
-				"error", err,
-				"config", c.cfg.Email.ErrorLogging)
-			// Continue without error logging if it fails
-		}
-	}
-
-	return trackingManager, errorLogger
-}
-
-// closeManagers safely closes tracking and error logging managers
-func (c *POP3Client) closeManagers(trackingManager *tracking.Manager, errorLogger *errorlog.Manager) {
-	if trackingManager != nil {
-		trackingManager.Close()
-	}
-	if errorLogger != nil {
-		errorLogger.Close()
-	}
-}
-
-// logConnectionError logs POP3 connection errors
-func (c *POP3Client) logConnectionError(err error, errorLogger *errorlog.Manager, config models.EmailConfig) {
-	c.logger.Error("failed to connect to POP3 server", "error", err)
-	
-	if errorLogger != nil {
-		errorLogger.LogError(errorlog.EmailError{
-			Protocol:  config.Protocol,
-			Server:    config.Server,
-			Username:  config.Username,
-			ErrorTime: time.Now().UTC(),
-			ErrorType: "connection",
-			ErrorMsg:  fmt.Sprintf("failed to connect: %v", err),
-		})
-	}
-}
-
-// getMailboxStats retrieves mailbox statistics
-func (c *POP3Client) getMailboxStats(conn *pop3.Conn, errorLogger *errorlog.Manager, config models.EmailConfig) (int, int, error) {
-	count, size, err := conn.Stat()
-	if err != nil {
-		if errorLogger != nil {
-			errorLogger.LogError(errorlog.EmailError{
-				Protocol:  config.Protocol,
-				Server:    config.Server,
-				Username:  config.Username,
-				ErrorTime: time.Now().UTC(),
-				ErrorType: "mailbox_stats",
-				ErrorMsg:  fmt.Sprintf("failed to get mailbox stats: %v", err),
-			})
-		}
-		return 0, 0, fmt.Errorf("failed to get mailbox stats: %w", err)
-	}
-	return count, size, nil
-}
-
-// getMessageList retrieves the list of messages
-func (c *POP3Client) getMessageList(conn *pop3.Conn, errorLogger *errorlog.Manager, config models.EmailConfig) ([]*pop3.MessageInfo, error) {
-	msgList, err := conn.List(0)
-	if err != nil {
-		if errorLogger != nil {
-			errorLogger.LogError(errorlog.EmailError{
-				Protocol:  config.Protocol,
-				Server:    config.Server,
-				Username:  config.Username,
-				ErrorTime: time.Now().UTC(),
-				ErrorType: "list_messages",
-				ErrorMsg:  fmt.Sprintf("failed to list messages: %v", err),
-			})
-		}
-		return nil, fmt.Errorf("failed to list messages: %w", err)
-	}
-	return msgList, nil
-}
-
-// DateFilter holds date filtering configuration and parsed dates
-type DateFilter struct {
-	Enabled   bool
-	FromTime  time.Time
-	ToTime    time.Time
-	FromError error
-	ToError   error
-}
-
-// initializeDateFilter sets up date filtering
-func (c *POP3Client) initializeDateFilter() DateFilter {
-	filter := DateFilter{
-		Enabled: c.cfg.Email.Protocols.POP3.DateFilter.Enabled,
-	}
-
-	if !filter.Enabled {
-		return filter
-	}
-
-	c.logger.Info("date filtering is enabled",
-		"from", c.cfg.Email.Protocols.POP3.DateFilter.From,
-		"to", c.cfg.Email.Protocols.POP3.DateFilter.To)
-
-	if c.cfg.Email.Protocols.POP3.DateFilter.From != "" {
-		filter.FromTime, filter.FromError = time.Parse(time.RFC3339, c.cfg.Email.Protocols.POP3.DateFilter.From)
-		if filter.FromError != nil {
-			c.logger.Warn("invalid date format for 'from' filter",
-				"from", c.cfg.Email.Protocols.POP3.DateFilter.From,
-				"error", filter.FromError)
-		}
-	}
-
-	if c.cfg.Email.Protocols.POP3.DateFilter.To != "" {
-		filter.ToTime, filter.ToError = time.Parse(time.RFC3339, c.cfg.Email.Protocols.POP3.DateFilter.To)
-		if filter.ToError != nil {
-			c.logger.Warn("invalid date format for 'to' filter",
-				"to", c.cfg.Email.Protocols.POP3.DateFilter.To,
-				"error", filter.ToError)
-		}
-	}
-
-	return filter
-}
-
-// processMessage handles a single POP3 message
-func (c *POP3Client) processMessage(ctx context.Context, conn *pop3.Conn, popMsg *pop3.MessageInfo, 
-	trackingManager *tracking.Manager, errorLogger *errorlog.Manager, 
-	dateFilter DateFilter, config models.EmailConfig) (models.DownloadResult, bool) {
-	
-	// Initialize result
-	result := models.DownloadResult{
-		MessageID:    fmt.Sprintf("%d", popMsg.ID),
-		DownloadedAt: time.Now().UTC(),
-		Status:       "processing",
-	}
-
-	// Check if already downloaded by message ID
-	if c.isMessageAlreadyDownloaded(trackingManager, popMsg.ID, config) {
-		return result, false
-	}
-
-	// Apply date filtering if enabled
-	if dateFilter.Enabled && (dateFilter.FromError == nil || dateFilter.ToError == nil) {
-		// Get the email date from headers
-		emailDate, err := c.getEmailDate(conn, popMsg.ID)
-		if err == nil && !emailDate.IsZero() {
-			// Check if outside date range
-			if c.isMessageOutsideDateRange(emailDate, dateFilter, popMsg.ID) {
-				return result, false
-			}
-		}
-	}
-
-	// Retrieve and buffer message
-	content, err := c.retrieveAndBufferMessage(conn, popMsg.ID, errorLogger, config, result)
-	if err != nil {
-		return result, true // Return error result
-	}
-
-	// Extract email metadata
-	sender, subject, sentAt, headers, err := c.extractEmailMetadata(content)
-	if err != nil {
-		c.logger.Warn("failed to extract email metadata", "error", err)
-		// Continue with default values
-	}
-	
-	// Update result with subject
-	if subject != "" {
-		result.Subject = subject
-	}
-
-	// Generate unique message ID
-	uniqueID := parser.GenerateUniqueMessageID(content)
-
-	// Check if already downloaded by unique ID
-	if c.isUniqueIDAlreadyDownloaded(trackingManager, uniqueID, config) {
-		return result, false
-	}
-
-	// Process email content to extract attachments
-	processedContent, attachments, err := c.processEmailContent(content, popMsg.ID, errorLogger, config, sender, subject, sentAt, uniqueID, result)
-	if err != nil {
-		return result, true // Return error result
-	}
-
-	// Process attachments
-	result = c.processAttachments(ctx, attachments, errorLogger, config, sender, subject, sentAt, uniqueID, result)
-
-	// Mark email as downloaded
-	c.markEmailAsDownloaded(trackingManager, config, uniqueID, sender, subject, sentAt, len(result.Attachments))
-
-	// Delete message if configured
-	c.deleteMessageIfConfigured(conn, popMsg.ID)
-
-	return result, true
-}
-
-// Additional helper methods would be implemented here...
-
 func decodeContent(content []byte, encoding string) ([]byte, error) {
 	switch strings.ToLower(encoding) {
 	case "base64":
@@ -645,4 +369,451 @@ func (c *POP3Client) getEmailDate(conn *pop3.Conn, msgID int) (time.Time, error)
 	return parser.ExtractDateValue(headers, c.logger), nil
 }
 
+// Modify the DownloadEmails function to apply date filtering
+func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
+	c.logger.Info("starting email download")
 
+	// Create tracking manager
+	trackingManager, err := tracking.NewManager(c.cfg, c.logger)
+	if err != nil {
+		c.logger.Error("failed to initialize tracking manager", "error", err)
+		// Continue without tracking if it fails
+	} else {
+		defer trackingManager.Close()
+	}
+
+	// Create error logging manager
+	c.logger.Debug("initializing error logger",
+		"enabled", c.cfg.Email.ErrorLogging.Enabled,
+		"storage_path", c.cfg.Email.ErrorLogging.StoragePath)
+
+	errorLogger, err := errorlog.NewManager(c.cfg, c.logger)
+	if err != nil {
+		c.logger.Error("failed to initialize error logger",
+			"error", err,
+			"config", c.cfg.Email.ErrorLogging)
+		// Continue without error logging if it fails
+	} else {
+		defer errorLogger.Close()
+	}
+
+	conn, err := c.Connect(req.Config)
+	if err != nil {
+		// Log connection error
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  req.Config.Protocol,
+				Server:    req.Config.Server,
+				Username:  req.Config.Username,
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "connection",
+				ErrorMsg:  fmt.Sprintf("failed to connect: %v", err),
+			})
+		}
+		return nil, err
+	}
+	defer conn.Quit()
+
+	// Get message count
+	count, size, err := conn.Stat()
+	if err != nil {
+		// Log stat error
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  req.Config.Protocol,
+				Server:    req.Config.Server,
+				Username:  req.Config.Username,
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "mailbox_stats",
+				ErrorMsg:  fmt.Sprintf("failed to get mailbox stats: %v", err),
+			})
+		}
+		return nil, fmt.Errorf("failed to get mailbox stats: %w", err)
+	}
+
+	c.logger.Info("mailbox stats",
+		"messages", count,
+		"total_size", size,
+	)
+
+	var results []models.DownloadResult
+
+	// Get list of all messages
+	msgList, err := conn.List(0)
+	if err != nil {
+		// Log list error
+		if errorLogger != nil {
+			errorLogger.LogError(errorlog.EmailError{
+				Protocol:  req.Config.Protocol,
+				Server:    req.Config.Server,
+				Username:  req.Config.Username,
+				ErrorTime: time.Now().UTC(),
+				ErrorType: "list_messages",
+				ErrorMsg:  fmt.Sprintf("failed to list messages: %v", err),
+			})
+		}
+		return nil, fmt.Errorf("failed to list messages: %w", err)
+	}
+
+	// Check if date filtering is enabled
+	dateFilterEnabled := c.cfg.Email.Protocols.POP3.DateFilter.Enabled
+
+	// Parse date strings to time.Time
+	var fromTime, toTime time.Time
+	var fromTimeErr, toTimeErr error = nil, nil
+
+	if dateFilterEnabled {
+		c.logger.Info("date filtering is enabled",
+			"from", c.cfg.Email.Protocols.POP3.DateFilter.From,
+			"to", c.cfg.Email.Protocols.POP3.DateFilter.To)
+
+		if c.cfg.Email.Protocols.POP3.DateFilter.From != "" {
+			fromTime, fromTimeErr = time.Parse(time.RFC3339, c.cfg.Email.Protocols.POP3.DateFilter.From)
+			if fromTimeErr != nil {
+				c.logger.Warn("invalid date format for 'from' filter, disabling from filter",
+					"from", c.cfg.Email.Protocols.POP3.DateFilter.From,
+					"error", fromTimeErr)
+				os.Exit(1)
+			}
+		}
+
+		if c.cfg.Email.Protocols.POP3.DateFilter.To != "" {
+			toTime, toTimeErr = time.Parse(time.RFC3339, c.cfg.Email.Protocols.POP3.DateFilter.To)
+			if toTimeErr != nil {
+				c.logger.Warn("invalid date format for 'to' filter, disabling to filter",
+					"to", c.cfg.Email.Protocols.POP3.DateFilter.To,
+					"error", toTimeErr)
+				os.Exit(2)
+			}
+		}
+	}
+
+	for _, popMsg := range msgList {
+		// Check if this message has already been downloaded
+		if trackingManager != nil && c.cfg.Email.Tracking.TrackDownloaded {
+			downloaded, err := trackingManager.IsEmailDownloaded(
+				req.Config.Protocol,
+				req.Config.Server,
+				req.Config.Username,
+				fmt.Sprintf("%d", popMsg.ID),
+			)
+			if err != nil {
+				c.logger.Warn("failed to check if email was downloaded",
+					"message_id", popMsg.ID,
+					"error", err)
+				// Continue processing this message
+			} else if downloaded {
+				c.logger.Debug("skipping already downloaded message", "message_id", popMsg.ID)
+				continue // Skip this message
+			}
+		}
+
+		result := models.DownloadResult{
+			MessageID:    fmt.Sprintf("%d", popMsg.ID),
+			DownloadedAt: time.Now().UTC(),
+			Status:       "processing",
+		}
+
+		c.logger.Debug("date filtering configuration", "dateFilterEnabled", dateFilterEnabled, "fromTime", fromTime, "toTime", toTime)
+		// Apply date filtering if enabled
+		if dateFilterEnabled && (fromTimeErr == nil || toTimeErr == nil) {
+			// Get the email date from headers
+			emailDate, err := c.getEmailDate(conn, popMsg.ID)
+			if err != nil {
+				c.logger.Warn("failed to get email date, skipping date filter",
+					"message_id", popMsg.ID,
+					"error", err)
+				// Continue with date filtering disabled for this message
+			} else {
+				// Check if the email is within the date range
+				if !emailDate.IsZero() {
+					if fromTimeErr == nil && !fromTime.IsZero() && emailDate.Before(fromTime) {
+						c.logger.Debug("skipping message outside date range (too old)",
+							"message_id", popMsg.ID,
+							"email_date", emailDate,
+							"filter_from", fromTime)
+						continue
+					}
+
+					if toTimeErr == nil && !toTime.IsZero() && emailDate.After(toTime) {
+						c.logger.Debug("skipping message outside date range (too new)",
+							"message_id", popMsg.ID,
+							"email_date", emailDate,
+							"filter_to", toTime)
+						continue
+					}
+
+					c.logger.Debug("message is within date range",
+						"message_id", popMsg.ID,
+						"email_date", emailDate)
+				}
+			}
+		}
+
+		// Get message
+		msgReader, err := conn.Retr(popMsg.ID)
+		if err != nil {
+			c.logger.Debug("failed to retrieve message", "error", err, "message_id", popMsg.ID)
+			result.Status = "error"
+			result.ErrorMessage = fmt.Sprintf("failed to retrieve message: %v", err)
+
+			// Log the error
+			if errorLogger != nil {
+				errorLogger.LogError(errorlog.EmailError{
+					Protocol:  req.Config.Protocol,
+					Server:    req.Config.Server,
+					Username:  req.Config.Username,
+					MessageID: fmt.Sprintf("%d", popMsg.ID),
+					ErrorTime: time.Now().UTC(),
+					ErrorType: "retrieve_message",
+					ErrorMsg:  fmt.Sprintf("failed to retrieve message: %v", err),
+				})
+			}
+
+			results = append(results, result)
+			continue
+		}
+
+
+		// Buffer the message body for multiple reads
+		buf := bytes.NewBuffer([]byte{})
+		_, err = io.Copy(buf, msgReader.Body)
+
+		if err != nil {
+			c.logger.Debug("failed to buffer message", "error", err, "message_id", popMsg.ID)
+			result.Status = "error"
+			result.ErrorMessage = fmt.Sprintf("failed to buffer message: %v", err)
+
+			// Log the error
+			if errorLogger != nil {
+				errorLogger.LogError(errorlog.EmailError{
+					Protocol:  req.Config.Protocol,
+					Server:    req.Config.Server,
+					Username:  req.Config.Username,
+					MessageID: fmt.Sprintf("%d", popMsg.ID),
+					ErrorTime: time.Now().UTC(),
+					ErrorType: "buffer_message",
+					ErrorMsg:  fmt.Sprintf("failed to buffer message: %v", err),
+				})
+			}
+
+			results = append(results, result)
+			continue
+		}
+
+
+		// Get message content
+		content := buf.Bytes()
+
+		// Extract basic email information for error logging
+		var sender, subject string
+		var sentAt time.Time
+
+		headers, err := parser.ParseHeaders(bytes.NewReader(content))
+		if err != nil {
+			c.logger.Warn("failed to parse headers", "error", err)
+			// Continue with empty headers map
+			headers = make(map[string][]string)
+		}
+
+		// Try multiple header variations for From field
+		sender = parser.ExtractHeaderValue(headers, []string{"From", "FROM", "from", "Sender", "SENDER", "sender"})
+
+		// Try multiple header variations for Subject field
+		subject = parser.ExtractHeaderValue(headers, []string{"Subject", "SUBJECT", "subject"})
+		if subject != "" {
+			result.Subject = subject
+		}
+
+		// Try to parse date with multiple formats and header names
+		sentAt = parser.ExtractDateValue(headers, c.logger)
+
+		if sender == "" {
+			sender = "unknown"
+		}
+		if subject == "" {
+			subject = "No Subject"
+		}
+
+		// Generate a unique message ID
+		uniqueID := parser.GenerateUniqueMessageID(content)
+
+		// Check if this message has already been downloaded using the unique ID
+		if trackingManager != nil && c.cfg.Email.Tracking.TrackDownloaded {
+			downloaded, err := trackingManager.IsEmailDownloaded(
+				req.Config.Protocol,
+				req.Config.Server,
+				req.Config.Username,
+				uniqueID,
+			)
+			if err != nil {
+				c.logger.Warn("failed to check if email was downloaded",
+					"message_id", uniqueID,
+					"error", err)
+				// Continue processing this message
+			} else if downloaded {
+				c.logger.Debug("skipping already downloaded message", "message_id", uniqueID)
+				continue // Skip this message
+			}
+		}
+
+		// Process email content to extract attachments and collect any errors
+		// This step parses the email body and finds any file attachments
+		// Returns processed content, attachments list, and potential errors
+		content, _, attachments, err := parser.ProcessEmailContent(content, fmt.Sprintf("%d", popMsg.ID), c.logger)
+		if err != nil {
+			// Log debug info about processing failure
+			c.logger.Debug("failed to process email content", "error", err, "message_id", popMsg.ID)
+
+			// Update result status to indicate error
+			result.Status = "error"
+			result.ErrorMessage = fmt.Sprintf("failed to process email content: %v", err)
+
+			// Log detailed error information if error logging is enabled
+			if errorLogger != nil {
+				// Create comprehensive error log entry with email metadata
+				errorLogger.LogError(errorlog.EmailError{
+					Protocol:  req.Config.Protocol,
+					Server:    req.Config.Server,
+					Username:  req.Config.Username,
+					MessageID: fmt.Sprintf("%d", popMsg.ID),
+					Sender:    sender,
+					Subject:   subject,
+					SentAt:    sentAt,
+					ErrorTime: time.Now().UTC(),
+					ErrorType: "process_email",
+					ErrorMsg:  fmt.Sprintf("failed to process email content: %v", err),
+					// Include truncated raw message for debugging purposes
+					RawMessage: parser.GetRawMessageSample(content, 1000),
+				})
+			}
+
+			// Add error result to results list and skip to next message
+			results = append(results, result)
+			continue
+		}
+
+
+		// Create attachment config with account name
+		attachmentConfig := attachment.AttachmentConfig{
+			StoragePath:       c.cfg.Email.Attachments.StoragePath,
+			MaxSize:           int64(c.cfg.Email.Attachments.MaxSize),
+			AllowedTypes:      c.cfg.Email.Attachments.AllowedTypes,
+			SanitizeFilenames: c.cfg.Email.Attachments.SanitizeFilenames,
+			PreserveStructure: c.cfg.Email.Attachments.PreserveStructure,
+			FilenamePattern:   c.cfg.Email.Attachments.NamingPattern,
+			AccountName:       c.cfg.Meta.ID, // Add the account name from config ID
+		}
+
+		// Process attachments
+		var attachmentErrors []string
+		for _, a := range attachments {
+			if attachment.IsAllowedAttachment(a.Filename, c.cfg.Email.Attachments.AllowedTypes, c.logger) {
+				content, err := io.ReadAll(a.Data)
+				if err != nil {
+					errMsg := fmt.Sprintf("failed to read attachment data: %v", err)
+					c.logger.Error("failed to read attachment data",
+						"filename", a.Filename,
+						"error", err,
+					)
+					attachmentErrors = append(attachmentErrors, errMsg)
+
+					// Log attachment error
+					if errorLogger != nil {
+						errorLogger.LogError(errorlog.EmailError{
+							Protocol:  req.Config.Protocol,
+							Server:    req.Config.Server,
+							Username:  req.Config.Username,
+							MessageID: uniqueID,
+							Sender:    sender,
+							Subject:   subject,
+							SentAt:    sentAt,
+							ErrorTime: time.Now().UTC(),
+							ErrorType: "attachment_read",
+							ErrorMsg:  errMsg,
+						})
+					}
+					continue
+				}
+
+				storageConfig := attachment.StorageConfig{
+					Type:            attachment.StorageType(c.cfg.Email.Attachments.Storage.Type),
+					CredentialsFile: c.cfg.Email.Attachments.Storage.CredentialsFile, // only needed for GDrive
+					ParentFolderID:  c.cfg.Email.Attachments.Storage.ParentFolderID,  // only needed for GDrive
+				}
+				finalPath, err := attachment.SaveAttachment(ctx, a.Filename, content, attachmentConfig, storageConfig, c.logger)
+				if err != nil {
+					errMsg := fmt.Sprintf("failed to save attachment: %v", err)
+					c.logger.Error("failed to save attachment",
+						"filename", a.Filename,
+						"error", err,
+					)
+					attachmentErrors = append(attachmentErrors, errMsg)
+
+					// Log attachment error
+					if errorLogger != nil {
+						errorLogger.LogError(errorlog.EmailError{
+							Protocol:  req.Config.Protocol,
+							Server:    req.Config.Server,
+							Username:  req.Config.Username,
+							MessageID: uniqueID,
+							Sender:    sender,
+							Subject:   subject,
+							SentAt:    sentAt,
+							ErrorTime: time.Now().UTC(),
+							ErrorType: "attachment_save",
+							ErrorMsg:  errMsg,
+						})
+					}
+					continue
+				}
+				result.Attachments = append(result.Attachments, filepath.Base(finalPath))
+			}
+		}
+
+		if len(result.Attachments) > 0 {
+			result.Status = "completed"
+		} else {
+			// If we had attachment errors but no successful attachments
+			if len(attachmentErrors) > 0 {
+				result.Status = "error"
+				result.ErrorMessage = strings.Join(attachmentErrors, "; ")
+			} else {
+				result.Status = "no_attachments"
+			}
+		}
+
+		results = append(results, result)
+
+		// Mark email as downloaded in tracking system
+		if trackingManager != nil && c.cfg.Email.Tracking.TrackDownloaded {
+			err := trackingManager.MarkEmailDownloaded(
+				req.Config.Protocol,
+				req.Config.Server,
+				req.Config.Username,
+				uniqueID,
+				sender,
+				subject,
+				sentAt,
+				len(result.Attachments),
+			)
+			if err != nil {
+				c.logger.Warn("failed to mark email as downloaded",
+					"message_id", uniqueID,
+					"error", err)
+			}
+		}
+
+		// Delete message if configured
+		if c.cfg.Email.Protocols.POP3.DeleteAfterDownload {
+			c.logger.Debug("deleting message", "message_id", popMsg.ID)
+			if err := conn.Dele(popMsg.ID); err != nil {
+				c.logger.Warn("failed to delete message",
+					"message_id", popMsg.ID,
+					"error", err)
+			}
+		}
+	}
+
+	return results, nil
+}
