@@ -52,6 +52,10 @@ email:
         oauth2:
           enabled: false
           provider: "google"
+      date_filter:
+        enabled: false
+        from: ""  # ISO8601 format: "2023-01-01T00:00:00Z"
+        to: ""    # ISO8601 format: "2023-12-31T23:59:59Z"
   retry:
     max_attempts: 3
     delay: 5

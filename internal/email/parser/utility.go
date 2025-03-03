@@ -103,10 +103,10 @@ func ProcessEmailContent(content []byte, messageID string, logger *slog.Logger) 
 	content = FixMalformedBoundaries(content)
 
 	// Log first few bytes of the message to help debug
-	preview := min(len(content), 200)
-	logger.Debug("message preview",
-		"message_id", messageID,
-		"content", string(content[:preview]))
+	// preview := min(len(content), 200)
+	// logger.Debug("message preview",
+	// 	"message_id", messageID,
+	// 	"content", string(content[:preview]))
 
 	// Extract Content-Type and boundary from headers
 	var attachments []parsemail.Attachment
@@ -115,16 +115,10 @@ func ProcessEmailContent(content []byte, messageID string, logger *slog.Logger) 
 	if contentType, ok := headers["Content-Type"]; ok && len(contentType) > 0 {
 		// Clean up Content-Type header
 		cleanContentType := contentType[0]
-
-		logger.Debug("processing email content type",
-			"message_id", messageID,
-			"raw_content_type", contentType[0],
-			"clean_content_type", cleanContentType)
-
 		// Extract boundary from Content-Type
 		mediaType, params, _, err := mediatype.Parse(cleanContentType)
 		if err != nil {
-			logger.Debug("failed to parse media type",
+			logger.Error("failed to parse media type",
 				"message_id", messageID,
 				"error", err,
 				"raw_content_type", contentType[0],
@@ -145,11 +139,6 @@ func ProcessEmailContent(content []byte, messageID string, logger *slog.Logger) 
 
 		if err == nil && strings.HasPrefix(mediaType, "multipart/") {
 			if boundaryParam, ok := params["boundary"]; ok {
-				logger.Debug("found boundary in headers",
-					"message_id", messageID,
-					"boundary", boundaryParam,
-					"media_type", mediaType,
-					"all_params", params)
 
 				// Try to find actual boundary marker in content
 				actualBoundary := FindActualBoundary(content, boundaryParam, logger, messageID)
@@ -220,10 +209,7 @@ func FindActualBoundary(content []byte, headerBoundary string, logger *slog.Logg
 			}
 
 			foundBoundaries = append(foundBoundaries, potentialBoundary)
-			logger.Debug("found potential boundary",
-				"message_id", messageID,
-				"boundary", potentialBoundary,
-				"line", line)
+
 
 			// Count occurrences of this boundary
 			if bytes.Count(content, []byte("--"+potentialBoundary)) > 1 {
@@ -234,17 +220,17 @@ func FindActualBoundary(content []byte, headerBoundary string, logger *slog.Logg
 
 	// Check for scanner errors
 	if err := scanner.Err(); err != nil {
-		logger.Debug("scanner error",
+		logger.Error("scanner error",
 			"message_id", messageID,
 			"error", err)
 	}
 
-	logger.Debug("boundary search results",
-		"message_id", messageID,
-		"header_boundary", headerBoundary,
-		"found_boundaries", foundBoundaries,
-		"content_lines", allLines[:min(10, len(allLines))], // Show first 10 lines
-		"actual_boundary", "")
+	// logger.Debug("boundary search results",
+	// 	"message_id", messageID,
+	// 	"header_boundary", headerBoundary,
+	// 	"found_boundaries", foundBoundaries,
+	// 	"content_lines", allLines[:min(10, len(allLines))], // Show first 10 lines
+	// 	"actual_boundary", "")
 
 	// Check if this is a delivery status notification (DSN)
 	for _, line := range allLines {
