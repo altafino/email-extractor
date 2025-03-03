@@ -172,9 +172,20 @@ func (c *IMAPClient) FetchMessages(ctx context.Context) error {
 	return <-done
 }
 
-// processMessage handles individual message processing
+// processMessage handles individual message processing with improved error handling and performance
 func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trackingManager *tracking.Manager, errorLogger *errorlog.Manager) error {
+	// Add context cancellation check
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	c.logger.Info("processing message", "uid", msg.Uid)
+
+	// Early check for nil message
+	if msg == nil || msg.Envelope == nil {
+		c.logger.Error("received nil message or envelope")
+		return fmt.Errorf("nil message or envelope")
+	}
 
 	// Check if this message has already been downloaded using the UID
 	if trackingManager != nil && c.config.Email.Tracking.TrackDownloaded {
@@ -196,56 +207,15 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 	}
 
 	// Check if the message date is within the filter range if date filtering is enabled
-	if c.config.Email.Protocols.IMAP.DateFilter.Enabled {
-		var fromDate, toDate time.Time
-		var err error
-
-		// Parse from date if provided
-		if c.config.Email.Protocols.IMAP.DateFilter.From != "" {
-			fromDate, err = time.Parse(time.RFC3339, c.config.Email.Protocols.IMAP.DateFilter.From)
-			if err != nil {
-				// Use a default if parsing fails
-				fromDate = time.Now().AddDate(0, 0, -30)
-			}
-		} else {
-			// Default to 30 days ago if not specified
-			fromDate = time.Now().AddDate(0, 0, -30)
-		}
-
-		// Parse to date if provided
-		if c.config.Email.Protocols.IMAP.DateFilter.To != "" {
-			toDate, err = time.Parse(time.RFC3339, c.config.Email.Protocols.IMAP.DateFilter.To)
-			if err != nil {
-				// Use current time if parsing fails
-				toDate = time.Now()
-			}
-		} else {
-			// Default to current time if not specified
-			toDate = time.Now()
-		}
-
-		// Get message date from envelope and convert to UTC for comparison
-		msgDate := msg.Envelope.Date.UTC()
-
-		// Convert comparison dates to UTC as well to ensure consistent comparison
-		fromDateUTC := fromDate.UTC()
-		toDateUTC := toDate.UTC()
-
-		// Debug log with all dates in UTC for clarity
-		c.logger.Debug("message date",
-			"date", msgDate.Format(time.RFC3339),
-			"from_date", fromDateUTC.Format(time.RFC3339),
-			"to_date", toDateUTC.Format(time.RFC3339),
-			"before", msgDate.Before(fromDateUTC),
-			"after", msgDate.After(toDateUTC))
-
-		// Skip message if outside date range - compare all dates in UTC
-		if msgDate.Before(fromDateUTC) || msgDate.After(toDateUTC) {
+	if c.config.Email.Protocols.IMAP.DateFilter.Enabled && msg.Envelope.Date != (time.Time{}) {
+		// Use a helper function to improve readability
+		inDateRange, fromDate, toDate := c.isMessageInDateRange(msg.Envelope.Date)
+		if !inDateRange {
 			c.logger.Debug("skipping message outside date range",
 				"uid", msg.Uid,
-				"date", msgDate.Format(time.RFC3339),
-				"from_date", fromDateUTC.Format(time.RFC3339),
-				"to_date", toDateUTC.Format(time.RFC3339))
+				"date", msg.Envelope.Date.UTC().Format(time.RFC3339),
+				"from_date", fromDate.Format(time.RFC3339),
+				"to_date", toDate.Format(time.RFC3339))
 			return nil
 		}
 	}
@@ -261,14 +231,25 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 	messageData := make(chan *imap.Message, 1)
 	done := make(chan error, 1)
 
-	// Fetch the message body
+	// Add context cancellation for fetch operation
+	fetchCtx, cancel := context.WithTimeout(ctx, time.Duration(c.config.Email.DefaultTimeout)*time.Second)
+	defer cancel()
+
+	// Fetch the message body with timeout
 	go func() {
-		done <- c.client.Fetch(seqSet, items, messageData)
+		select {
+		case <-fetchCtx.Done():
+			done <- fetchCtx.Err()
+		default:
+			done <- c.client.Fetch(seqSet, items, messageData)
+		}
 	}()
 
 	// Get the message from the channel
-	fetchedMsg := <-messageData
-	if err := <-done; err != nil {
+	var fetchedMsg *imap.Message
+	select {
+	case fetchedMsg = <-messageData:
+	case <-fetchCtx.Done():
 		if errorLogger != nil {
 			errorLogger.LogError(errorlog.EmailError{
 				Protocol:  "IMAP",
@@ -276,28 +257,107 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 				Username:  c.config.Email.Protocols.IMAP.Username,
 				MessageID: fmt.Sprintf("%d", msg.Uid),
 				ErrorTime: time.Now().UTC(),
-				ErrorType: "fetch_message",
-				ErrorMsg:  fmt.Sprintf("failed to fetch message body: %v", err),
+				ErrorType: "fetch_timeout",
+				ErrorMsg:  "timeout while fetching message body",
 			})
 		}
+		return fmt.Errorf("timeout while fetching message body")
+	}
+
+	if err := <-done; err != nil {
+		c.logFetchError(msg.Uid, err, errorLogger)
 		return fmt.Errorf("failed to fetch message body: %w", err)
 	}
 
 	if fetchedMsg == nil {
-		if errorLogger != nil {
-			errorLogger.LogError(errorlog.EmailError{
-				Protocol:  "IMAP",
-				Server:    c.config.Email.Protocols.IMAP.Server,
-				Username:  c.config.Email.Protocols.IMAP.Username,
-				MessageID: fmt.Sprintf("%d", msg.Uid),
-				ErrorTime: time.Now().UTC(),
-				ErrorType: "empty_message",
-				ErrorMsg:  "no message data received",
-			})
-		}
+		c.logEmptyMessageError(msg.Uid, errorLogger)
 		return fmt.Errorf("no message data received")
 	}
 
+	// Process the message body
+	return c.processMessageBody(ctx, msg, fetchedMsg, trackingManager, errorLogger)
+}
+
+// Helper functions to improve readability and maintainability
+
+// isMessageInDateRange checks if a message date is within the configured date range
+func (c *IMAPClient) isMessageInDateRange(msgDate time.Time) (bool, time.Time, time.Time) {
+	var fromDate, toDate time.Time
+	var err error
+
+	// Parse from date if provided
+	if c.config.Email.Protocols.IMAP.DateFilter.From != "" {
+		fromDate, err = time.Parse(time.RFC3339, c.config.Email.Protocols.IMAP.DateFilter.From)
+		if err != nil {
+			// Use a default if parsing fails
+			fromDate = time.Now().AddDate(0, 0, -30)
+		}
+	} else {
+		// Default to 30 days ago if not specified
+		fromDate = time.Now().AddDate(0, 0, -30)
+	}
+
+	// Parse to date if provided
+	if c.config.Email.Protocols.IMAP.DateFilter.To != "" {
+		toDate, err = time.Parse(time.RFC3339, c.config.Email.Protocols.IMAP.DateFilter.To)
+		if err != nil {
+			// Use current time if parsing fails
+			toDate = time.Now()
+		}
+	} else {
+		// Default to current time if not specified
+		toDate = time.Now()
+	}
+
+	// Convert all dates to UTC for consistent comparison
+	msgDateUTC := msgDate.UTC()
+	fromDateUTC := fromDate.UTC()
+	toDateUTC := toDate.UTC()
+
+	// Debug log with all dates in UTC for clarity
+	c.logger.Debug("message date comparison",
+		"date", msgDateUTC.Format(time.RFC3339),
+		"from_date", fromDateUTC.Format(time.RFC3339),
+		"to_date", toDateUTC.Format(time.RFC3339),
+		"before", msgDateUTC.Before(fromDateUTC),
+		"after", msgDateUTC.After(toDateUTC))
+
+	// Check if message is within date range
+	return !(msgDateUTC.Before(fromDateUTC) || msgDateUTC.After(toDateUTC)), fromDateUTC, toDateUTC
+}
+
+// logFetchError logs errors when fetching message body
+func (c *IMAPClient) logFetchError(uid uint32, err error, errorLogger *errorlog.Manager) {
+	if errorLogger != nil {
+		errorLogger.LogError(errorlog.EmailError{
+			Protocol:  "IMAP",
+			Server:    c.config.Email.Protocols.IMAP.Server,
+			Username:  c.config.Email.Protocols.IMAP.Username,
+			MessageID: fmt.Sprintf("%d", uid),
+			ErrorTime: time.Now().UTC(),
+			ErrorType: "fetch_message",
+			ErrorMsg:  fmt.Sprintf("failed to fetch message body: %v", err),
+		})
+	}
+}
+
+// logEmptyMessageError logs errors when no message data is received
+func (c *IMAPClient) logEmptyMessageError(uid uint32, errorLogger *errorlog.Manager) {
+	if errorLogger != nil {
+		errorLogger.LogError(errorlog.EmailError{
+			Protocol:  "IMAP",
+			Server:    c.config.Email.Protocols.IMAP.Server,
+			Username:  c.config.Email.Protocols.IMAP.Username,
+			MessageID: fmt.Sprintf("%d", uid),
+			ErrorTime: time.Now().UTC(),
+			ErrorType: "empty_message",
+			ErrorMsg:  "no message data received",
+		})
+	}
+}
+
+// processMessageBody handles the actual processing of the message content
+func (c *IMAPClient) processMessageBody(ctx context.Context, msg *imap.Message, fetchedMsg *imap.Message, trackingManager *tracking.Manager, errorLogger *errorlog.Manager) error {
 	// Get the message body
 	var body []byte
 	for _, literal := range fetchedMsg.Body {
@@ -335,6 +395,12 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 		return fmt.Errorf("empty message body")
 	}
 
+	// Extract email metadata and process attachments
+	return c.extractAndProcessEmail(ctx, msg, body, trackingManager, errorLogger)
+}
+
+// extractAndProcessEmail handles the extraction and processing of email content
+func (c *IMAPClient) extractAndProcessEmail(ctx context.Context, msg *imap.Message, body []byte, trackingManager *tracking.Manager, errorLogger *errorlog.Manager) error {
 	// Extract basic email information for logging
 	var sender, subject string
 	var sentAt time.Time
