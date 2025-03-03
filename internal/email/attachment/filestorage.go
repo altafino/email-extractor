@@ -37,24 +37,24 @@ func (fs *FileStorage) Save(filename string, content []byte, config AttachmentCo
 	finalFilename := ""
 	if config.FilenamePattern != "" {
 		// Log the pattern and base filename
-		fs.logger.Debug("applying filename pattern", 
+		fs.logger.Debug("applying filename pattern",
 			"pattern", config.FilenamePattern,
 			"base_filename", baseFilename)
-			
+
 		// Apply pattern to the base filename (without extension)
 		patternedFilename := GenerateFilename(baseFilename, time.Now().UTC(), config.FilenamePattern)
-		
+
 		// Log the result after pattern application
-		fs.logger.Debug("pattern applied", 
+		fs.logger.Debug("pattern applied",
 			"patterned_filename", patternedFilename)
-			
+
 		// Sanitize the patterned filename if needed
 		if config.SanitizeFilenames {
 			patternedFilename = SanitizeFilename(patternedFilename)
-			fs.logger.Debug("sanitized patterned filename", 
+			fs.logger.Debug("sanitized patterned filename",
 				"sanitized_filename", patternedFilename)
 		}
-		
+
 		// Make sure the extension is preserved
 		finalFilename = patternedFilename
 		if !strings.HasSuffix(finalFilename, ext) {
