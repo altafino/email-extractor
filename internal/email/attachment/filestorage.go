@@ -16,35 +16,52 @@ func (fs *FileStorage) Save(filename string, content []byte, config AttachmentCo
 		return "", fmt.Errorf("attachment size %d exceeds maximum allowed size %d", len(content), config.MaxSize)
 	}
 
-	// First sanitize if configured (before pattern application)
-	if config.SanitizeFilenames {
-		filename = SanitizeFilename(filename)
-	}
-
-	// Apply the naming pattern
-	filename = GenerateFilename(filename, time.Now().UTC(), config.FilenamePattern)
-
-	// Ensure filename has correct extension
+	// Store original extension and base name
 	ext := strings.ToLower(filepath.Ext(filename))
 	baseFilename := strings.TrimSuffix(filename, ext)
-
-	// If the extension is uppercase, convert it to lowercase
-	if ext != strings.ToLower(ext) {
-		filename = baseFilename + strings.ToLower(ext)
-	}
 
 	// If no extension, try to detect from content
 	if ext == "" {
 		contentType := http.DetectContentType(content)
 		if mimeExt, ok := MimeToExt[contentType]; ok {
-			filename = filename + mimeExt
 			ext = mimeExt
 		}
 	}
 
-	// Sanitize filename if configured
+	// First sanitize the base filename if configured
 	if config.SanitizeFilenames {
-		filename = SanitizeFilename(filename)
+		baseFilename = SanitizeFilename(baseFilename)
+	}
+
+	// Apply the naming pattern
+	finalFilename := ""
+	if config.FilenamePattern != "" {
+		// Log the pattern and base filename
+		fs.logger.Debug("applying filename pattern", 
+			"pattern", config.FilenamePattern,
+			"base_filename", baseFilename)
+			
+		// Apply pattern to the base filename (without extension)
+		patternedFilename := GenerateFilename(baseFilename, time.Now().UTC(), config.FilenamePattern)
+		
+		// Log the result after pattern application
+		fs.logger.Debug("pattern applied", 
+			"patterned_filename", patternedFilename)
+			
+		// Sanitize the patterned filename if needed
+		if config.SanitizeFilenames {
+			patternedFilename = SanitizeFilename(patternedFilename)
+			fs.logger.Debug("sanitized patterned filename", 
+				"sanitized_filename", patternedFilename)
+		}
+		
+		// Make sure the extension is preserved
+		finalFilename = patternedFilename
+		if !strings.HasSuffix(finalFilename, ext) {
+			finalFilename += ext
+		}
+	} else {
+		finalFilename = baseFilename + ext
 	}
 
 	// Process storage path with date variables
@@ -54,7 +71,6 @@ func (fs *FileStorage) Save(filename string, content []byte, config AttachmentCo
 	// Check if the storage path contains variables
 	hasVars := strings.Contains(storagePath, "${")
 
-
 	// Replace variables in storage path
 	if hasVars {
 		storagePath = fs.processStoragePath(storagePath, now, config.AccountName)
@@ -63,14 +79,13 @@ func (fs *FileStorage) Save(filename string, content []byte, config AttachmentCo
 	// Determine the final directory path
 	finalDir := fs.getFinalDirectory(storagePath, hasVars, config.PreserveStructure, now)
 
-
 	// Create the directory
 	if err := os.MkdirAll(finalDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
 	// Get final path and handle duplicates
-	finalPath := fs.getUniquePath(filepath.Join(finalDir, filename))
+	finalPath := fs.getUniquePath(filepath.Join(finalDir, finalFilename))
 
 	// Create and write file
 	if err := fs.writeFile(finalPath, content); err != nil {

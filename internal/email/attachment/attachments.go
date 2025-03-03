@@ -342,11 +342,10 @@ func SanitizeFilename(filename string) string {
 		">", "_",
 		"|", "_",
 		";", "_",
+		"$", "", // Remove dollar signs instead of replacing with underscore
 		"&", "_",
-		"$", "_",
 		"#", "_",
 		"%", "_",
-		"@", "_",
 		"!", "_",
 		"`", "_",
 		"~", "_",
@@ -381,23 +380,28 @@ func GenerateFilename(filename string, timestamp time.Time, pattern string) stri
 		return filename
 	}
 
-	// Extract base name and extension
-	ext := filepath.Ext(filename)
-	base := strings.TrimSuffix(filename, ext)
+	// Create a map of all replacements
+	replacements := map[string]string{
+		"{filename}":  filename,
+		"{ext}":       strings.TrimPrefix(filepath.Ext(filename), "."),
+		"{date}":      timestamp.Format("2006-01-02"),
+		"{time}":      timestamp.Format("150405"),
+		"{datetime}":  timestamp.Format("20060102_150405"),
+		"{unixtime}":  fmt.Sprintf("%d", timestamp.UnixNano()),
+		"{random}":    fmt.Sprintf("%d", rand.Intn(10000)),
+		"${filename}": filename,
+		"${ext}":      strings.TrimPrefix(filepath.Ext(filename), "."),
+		"${date}":     timestamp.Format("2006-01-02"),
+		"${time}":     timestamp.Format("150405"),
+		"${datetime}": timestamp.Format("20060102_150405"),
+		"${unixtime}": fmt.Sprintf("%d", timestamp.UnixNano()),
+		"${random}":   fmt.Sprintf("%d", rand.Intn(10000)),
+	}
 
-	// Apply pattern
+	// Apply all replacements
 	result := pattern
-	result = strings.ReplaceAll(result, "{filename}", base)
-	result = strings.ReplaceAll(result, "{ext}", strings.TrimPrefix(ext, "."))
-	result = strings.ReplaceAll(result, "{date}", timestamp.Format("2006-01-02"))
-	result = strings.ReplaceAll(result, "{time}", timestamp.Format("150405"))
-	result = strings.ReplaceAll(result, "{datetime}", timestamp.Format("20060102_150405"))
-	result = strings.ReplaceAll(result, "{unixtime}", fmt.Sprintf("%d", timestamp.UnixNano()))
-	result = strings.ReplaceAll(result, "{random}", fmt.Sprintf("%d", rand.Intn(10000)))
-
-	// If the pattern doesn't include the extension, add it
-	if !strings.Contains(pattern, "{ext}") && !strings.HasSuffix(result, ext) {
-		result += ext
+	for placeholder, value := range replacements {
+		result = strings.ReplaceAll(result, placeholder, value)
 	}
 
 	return result

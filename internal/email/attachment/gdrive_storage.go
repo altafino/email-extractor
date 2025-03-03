@@ -41,18 +41,50 @@ func (gd *GDriveStorage) Save(filename string, content []byte, config Attachment
 		return "", fmt.Errorf("attachment size %d exceeds maximum allowed size %d", len(content), config.MaxSize)
 	}
 
-	// Process filename
-	gd.logger.Debug("processing filename", "filename", filename)
+	// Store original extension and base name
+	ext := strings.ToLower(filepath.Ext(filename))
+	baseFilename := strings.TrimSuffix(filename, ext)
+
+	// First sanitize the base filename if configured
 	if config.SanitizeFilenames {
-		filename = SanitizeFilename(filename)
+		baseFilename = SanitizeFilename(baseFilename)
 	}
-	gd.logger.Debug("sanitized filename", "filename", filename)
 
 	// Apply the naming pattern
-	now := time.Now().UTC()
-	filename = GenerateFilename(filename, now, config.FilenamePattern)
-	gd.logger.Debug("generated filename", "filename", filename)
+	finalFilename := ""
+	if config.FilenamePattern != "" {
+		// Log the pattern and base filename
+		gd.logger.Debug("applying filename pattern", 
+			"pattern", config.FilenamePattern,
+			"base_filename", baseFilename)
+			
+		// Apply pattern to the base filename (without extension)
+		patternedFilename := GenerateFilename(baseFilename, time.Now().UTC(), config.FilenamePattern)
+		
+		// Log the result after pattern application
+		gd.logger.Debug("pattern applied", 
+			"patterned_filename", patternedFilename)
+			
+		// Sanitize the patterned filename if needed
+		if config.SanitizeFilenames {
+			patternedFilename = SanitizeFilename(patternedFilename)
+			gd.logger.Debug("sanitized patterned filename", 
+				"sanitized_filename", patternedFilename)
+		}
+		
+		// Make sure the extension is preserved
+		finalFilename = patternedFilename
+		if !strings.HasSuffix(finalFilename, ext) {
+			finalFilename += ext
+		}
+	} else {
+		finalFilename = baseFilename + ext
+	}
+
+	gd.logger.Debug("final filename", "filename", finalFilename)
+
 	// Process storage path with date variables
+	now := time.Now().UTC()
 	folderPath := config.StoragePath
 	if strings.Contains(folderPath, "${") {
 		folderPath = gd.processStoragePath(folderPath, now, config.AccountName)
@@ -65,11 +97,11 @@ func (gd *GDriveStorage) Save(filename string, content []byte, config Attachment
 	}
 
 	// Create file metadata
-	gd.logger.Debug("creating file metadata", "filename", filename, "folderID", folderID)
+	gd.logger.Debug("creating file metadata", "filename", finalFilename, "folderID", folderID)
 	file := &drive.File{
-		Name:     filename,
+		Name:     finalFilename,
 		Parents:  []string{folderID},
-		MimeType: gd.getMimeType(filename),
+		MimeType: gd.getMimeType(finalFilename),
 	}
 
 	// Upload file
@@ -80,11 +112,12 @@ func (gd *GDriveStorage) Save(filename string, content []byte, config Attachment
 	}
 
 	gd.logger.Debug("file uploaded successfully",
-		"filename", filename,
+		"filename", finalFilename,
 		"id", uploadedFile.Id,
 		"size", len(content))
 
-	return uploadedFile.Id, nil
+	// Return a URL or path that includes the filename for consistency
+	return fmt.Sprintf("%s/%s", uploadedFile.Id, finalFilename), nil
 }
 
 // Helper methods
