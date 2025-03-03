@@ -62,6 +62,10 @@ email:
           provider: "google"
           client_id: "${OAUTH_CLIENT_ID}"
           client_secret: "${OAUTH_CLIENT_SECRET}"
+      date_filter:
+        enabled: false
+        from: ""  # ISO8601 format: "2023-01-01T00:00:00Z"
+        to: ""    # ISO8601 format: "2023-12-31T23:59:59Z"
   retry:
     max_attempts: 3
     delay: 5

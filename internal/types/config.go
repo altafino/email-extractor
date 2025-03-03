@@ -60,7 +60,15 @@ type Config struct {
 				Server              string `yaml:"server"`
 				Username            string `yaml:"username"`
 				Password            string `yaml:"password"`
-				Security            struct {
+
+				// Add date filtering options
+				DateFilter struct {
+					Enabled bool   `yaml:"enabled"`
+					From    string `yaml:"from,omitempty"` // ISO8601 format string
+					To      string `yaml:"to,omitempty"`   // ISO8601 format string
+				} `yaml:"date_filter"`
+
+				Security struct {
 					TLS struct {
 						Enabled    bool   `yaml:"enabled"`
 						MinVersion string `yaml:"min_version"`

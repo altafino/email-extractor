@@ -87,11 +87,7 @@ func (f *FileLogger) LogError(err EmailError) error {
 				"file", filePath,
 				"error", err)
 			errors = []EmailError{}
-		} else {
-			f.logger.Debug("successfully read existing errors",
-				"file", filePath,
-				"count", len(errors))
-		}
+		} 
 	} else {
 		f.logger.Debug("file does not exist, creating new file", "file_path", filePath)
 		errors = []EmailError{}
@@ -106,24 +102,12 @@ func (f *FileLogger) LogError(err EmailError) error {
 		return fmt.Errorf("failed to marshal error log: %w", jsonErr)
 	}
 
-	f.logger.Debug("writing error log to file",
-		"file_path", filePath,
-		"bytes", len(data),
-		"errors_count", len(errors))
-
 	if writeErr := os.WriteFile(filePath, data, 0644); writeErr != nil {
 		f.logger.Error("failed to write error log file",
 			"file", filePath,
 			"error", writeErr)
 		return fmt.Errorf("failed to write error log file: %w", writeErr)
 	}
-
-	f.logger.Info("successfully logged email error",
-		"error_id", err.ID,
-		"message_id", err.MessageID,
-		"sender", err.Sender,
-		"error_type", err.ErrorType,
-		"file", filePath)
 
 	return nil
 }

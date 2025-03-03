@@ -54,10 +54,6 @@ func (fs *FileStorage) Save(filename string, content []byte, config AttachmentCo
 	// Check if the storage path contains variables
 	hasVars := strings.Contains(storagePath, "${")
 
-	fs.logger.Debug("processing storage path",
-		"original", storagePath,
-		"has_vars", hasVars,
-		"account", config.AccountName)
 
 	// Replace variables in storage path
 	if hasVars {
@@ -67,8 +63,6 @@ func (fs *FileStorage) Save(filename string, content []byte, config AttachmentCo
 	// Determine the final directory path
 	finalDir := fs.getFinalDirectory(storagePath, hasVars, config.PreserveStructure, now)
 
-	fs.logger.Debug("final directory path",
-		"final_dir", finalDir)
 
 	// Create the directory
 	if err := os.MkdirAll(finalDir, 0755); err != nil {

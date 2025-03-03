@@ -7,14 +7,16 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	"github.com/altafino/email-extractor/internal/email/attachment"
 	"io"
 	"log/slog"
 	"mime"
 	"mime/quotedprintable"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/altafino/email-extractor/internal/email/attachment"
 
 	"github.com/DusanKasan/parsemail"
 	"github.com/altafino/email-extractor/internal/email/parser"
@@ -228,6 +230,9 @@ func (c *POP3Client) extractAttachmentsMultipart(content []byte, boundary string
 				filename := ""
 				if contentDisp != "" {
 					if _, params, _, err := mediatype.Parse(contentDisp); err == nil {
+						if err != nil {
+							c.logger.Error("failed to parse content disposition", "error", err)
+						}
 						if fn, ok := params["filename"]; ok {
 							filename = decodeFilename(fn)
 						}
@@ -337,8 +342,35 @@ func extractMessageIDHeader(content []byte) string {
 	return ""
 }
 
-func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
+// Add this function to retrieve and parse email headers to get the date
+func (c *POP3Client) getEmailDate(conn *pop3.Conn, msgID int) (time.Time, error) {
+	// Use TOP command to retrieve only the headers (0 lines of body)
+	msgReader, err := conn.Top(msgID, 0)
+	if err != nil {
+		c.logger.Error("failed to retrieve message headers", "error", err)
+		return time.Time{}, fmt.Errorf("failed to retrieve message headers: %w", err)
+	}
 
+	// Read the headers
+	headerBytes, err := io.ReadAll(msgReader.Body)
+	if err != nil {
+		c.logger.Error("failed to read message headers", "error", err)
+		return time.Time{}, fmt.Errorf("failed to read message headers: %w", err)
+	}
+
+	// Parse the headers
+	headers, err := parser.ParseHeaders(bytes.NewReader(headerBytes))
+	if err != nil {
+		c.logger.Error("failed to parse message headers", "error", err)
+		return time.Time{}, fmt.Errorf("failed to parse message headers: %w", err)
+	}
+
+	// Extract the date
+	return parser.ExtractDateValue(headers, c.logger), nil
+}
+
+// Modify the DownloadEmails function to apply date filtering
+func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloadRequest) ([]models.DownloadResult, error) {
 	c.logger.Info("starting email download")
 
 	// Create tracking manager
@@ -423,6 +455,39 @@ func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloa
 		return nil, fmt.Errorf("failed to list messages: %w", err)
 	}
 
+	// Check if date filtering is enabled
+	dateFilterEnabled := c.cfg.Email.Protocols.POP3.DateFilter.Enabled
+
+	// Parse date strings to time.Time
+	var fromTime, toTime time.Time
+	var fromTimeErr, toTimeErr error = nil, nil
+
+	if dateFilterEnabled {
+		c.logger.Info("date filtering is enabled",
+			"from", c.cfg.Email.Protocols.POP3.DateFilter.From,
+			"to", c.cfg.Email.Protocols.POP3.DateFilter.To)
+
+		if c.cfg.Email.Protocols.POP3.DateFilter.From != "" {
+			fromTime, fromTimeErr = time.Parse(time.RFC3339, c.cfg.Email.Protocols.POP3.DateFilter.From)
+			if fromTimeErr != nil {
+				c.logger.Warn("invalid date format for 'from' filter, disabling from filter",
+					"from", c.cfg.Email.Protocols.POP3.DateFilter.From,
+					"error", fromTimeErr)
+				os.Exit(1)
+			}
+		}
+
+		if c.cfg.Email.Protocols.POP3.DateFilter.To != "" {
+			toTime, toTimeErr = time.Parse(time.RFC3339, c.cfg.Email.Protocols.POP3.DateFilter.To)
+			if toTimeErr != nil {
+				c.logger.Warn("invalid date format for 'to' filter, disabling to filter",
+					"to", c.cfg.Email.Protocols.POP3.DateFilter.To,
+					"error", toTimeErr)
+				os.Exit(2)
+			}
+		}
+	}
+
 	for _, popMsg := range msgList {
 		// Check if this message has already been downloaded
 		if trackingManager != nil && c.cfg.Email.Tracking.TrackDownloaded {
@@ -449,6 +514,42 @@ func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloa
 			Status:       "processing",
 		}
 
+		c.logger.Debug("date filtering configuration", "dateFilterEnabled", dateFilterEnabled, "fromTime", fromTime, "toTime", toTime)
+		// Apply date filtering if enabled
+		if dateFilterEnabled && (fromTimeErr == nil || toTimeErr == nil) {
+			// Get the email date from headers
+			emailDate, err := c.getEmailDate(conn, popMsg.ID)
+			if err != nil {
+				c.logger.Warn("failed to get email date, skipping date filter",
+					"message_id", popMsg.ID,
+					"error", err)
+				// Continue with date filtering disabled for this message
+			} else {
+				// Check if the email is within the date range
+				if !emailDate.IsZero() {
+					if fromTimeErr == nil && !fromTime.IsZero() && emailDate.Before(fromTime) {
+						c.logger.Debug("skipping message outside date range (too old)",
+							"message_id", popMsg.ID,
+							"email_date", emailDate,
+							"filter_from", fromTime)
+						continue
+					}
+
+					if toTimeErr == nil && !toTime.IsZero() && emailDate.After(toTime) {
+						c.logger.Debug("skipping message outside date range (too new)",
+							"message_id", popMsg.ID,
+							"email_date", emailDate,
+							"filter_to", toTime)
+						continue
+					}
+
+					c.logger.Debug("message is within date range",
+						"message_id", popMsg.ID,
+						"email_date", emailDate)
+				}
+			}
+		}
+
 		// Get message
 		msgReader, err := conn.Retr(popMsg.ID)
 		if err != nil {
@@ -473,7 +574,6 @@ func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloa
 			continue
 		}
 
-		c.logger.Debug("retrieved message", "message_id", popMsg.ID)
 
 		// Buffer the message body for multiple reads
 		buf := bytes.NewBuffer([]byte{})
@@ -501,7 +601,6 @@ func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloa
 			continue
 		}
 
-		c.logger.Debug("message size", "bytes", buf.Len(), "message_id", popMsg.ID)
 
 		// Get message content
 		content := buf.Bytes()
@@ -519,26 +618,21 @@ func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloa
 
 		// Try multiple header variations for From field
 		sender = parser.ExtractHeaderValue(headers, []string{"From", "FROM", "from", "Sender", "SENDER", "sender"})
-		c.logger.Debug("extracted sender", "sender", sender, "raw_headers", headers)
 
 		// Try multiple header variations for Subject field
 		subject = parser.ExtractHeaderValue(headers, []string{"Subject", "SUBJECT", "subject"})
 		if subject != "" {
 			result.Subject = subject
-			c.logger.Debug("extracted subject", "subject", subject)
 		}
 
 		// Try to parse date with multiple formats and header names
 		sentAt = parser.ExtractDateValue(headers, c.logger)
 
-		c.logger.Debug("email info", "sender", sender, "subject", subject, "sent_at", sentAt)
 		if sender == "" {
 			sender = "unknown"
-			c.logger.Debug("using default sender", "sender", sender)
 		}
 		if subject == "" {
 			subject = "No Subject"
-			c.logger.Debug("using default subject", "subject", subject)
 		}
 
 		// Generate a unique message ID
@@ -599,8 +693,6 @@ func (c *POP3Client) DownloadEmails(ctx context.Context, req models.EmailDownloa
 			continue
 		}
 
-		c.logger.Debug("parsed email",
-			"attachment_count", len(attachments))
 
 		// Create attachment config with account name
 		attachmentConfig := attachment.AttachmentConfig{

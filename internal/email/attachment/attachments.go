@@ -75,8 +75,7 @@ func ExtractAttachmentsMultipart(content []byte, boundary string, logger *slog.L
 				contentType = ct[0]
 			}
 
-			mediaType, params, invalidParams, err := mediatype.Parse(contentType)
-			logger.Debug("mediaType", "mediaType", mediaType, "params", params, "invalidParams", invalidParams, "err", err)
+			mediaType, params, _, err := mediatype.Parse(contentType)
 			if err == nil {
 				// Handle nested multipart
 				if strings.Contains(strings.ToLower(mediaType), "multipart") {
@@ -175,7 +174,6 @@ func ExtractAttachmentsMultipart(content []byte, boundary string, logger *slog.L
 		return nestedAttachments, nil
 	}
 
-	logger.Debug("starting multipart extraction", "boundary", boundary)
 	return handleMultipart(content, boundary)
 }
 
@@ -289,18 +287,12 @@ func IsAllowedAttachment(filename string, allowedTypes []string, logger *slog.Lo
 	}
 
 	ext = strings.ToLower(ext)
-	logger.Debug("checking attachment",
-		"filename", filename,
-		"extension", ext,
-		"allowed_types", allowedTypes)
-
 	for _, allowedType := range allowedTypes {
 		allowedType = strings.ToLower(allowedType)
 		// Compare with and without dot
 		if ext == allowedType ||
 			ext == "."+strings.TrimPrefix(allowedType, ".") ||
 			strings.TrimPrefix(ext, ".") == strings.TrimPrefix(allowedType, ".") {
-			logger.Debug("allowed attachment", "filename", filename, "extension", ext)
 			return true
 		}
 	}
