@@ -321,6 +321,7 @@ func SaveAttachment(ctx context.Context, filename string, content []byte, config
 	}
 
 	// Use the storage implementation to save the attachment
+	logger.Debug("saving attachment", "filename", filename, "config", config, "storageConfig", storageConfig, "storage", storage, "content", len(content))
 	return storage.Save(filename, content, config)
 }
 

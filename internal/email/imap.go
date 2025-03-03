@@ -164,6 +164,8 @@ func (c *IMAPClient) FetchMessages(ctx context.Context) error {
 		// Process each message
 		if err := c.processMessage(ctx, msg, trackingManager, errorLogger); err != nil {
 			c.logger.Error("Failed to process message", "error", err, "uid", msg.Uid)
+		} else {
+			c.logger.Debug("processed message", "uid", msg.Uid)
 		}
 	}
 
@@ -384,6 +386,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 
 	for _, a := range attachments {
 		if attachment.IsAllowedAttachment(a.Filename, c.config.Email.Attachments.AllowedTypes, c.logger) {
+			c.logger.Debug(a.Filename)
 			content, err := io.ReadAll(a.Data)
 			if err != nil {
 				errMsg := fmt.Sprintf("failed to read attachment data: %v", err)
