@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-	"unicode"
 )
 
 // ParseHeaders parses email headers from a reader
