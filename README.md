@@ -29,7 +29,8 @@ A service that automatically downloads emails and extracts attachments using POP
     - [x] File Storage
     - [x] Google Drive
     - [ ] S3 compatible Bucket Storage
-  - [ ] Filter for TimePeriod (Download only those attachments)
+  - [x] Filter for TimePeriod IMAP
+  - [ ] Filter for TimePeriod POP3 (not working)
 
 ### Security
 - [x] TLS Configuration

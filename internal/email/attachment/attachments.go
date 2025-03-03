@@ -11,6 +11,7 @@ import (
 	"mime"
 	"mime/quotedprintable"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -162,6 +163,52 @@ func ExtractAttachmentsMultipart(content []byte, boundary string, logger *slog.L
 					} else {
 						// For existing filenames, just trim spaces
 						filename = strings.TrimSpace(filename)
+					}
+
+					// Fix for truncated filenames
+					if !strings.Contains(filename, ".") || strings.HasSuffix(filename, " ") {
+						logger.Debug("detected potentially truncated filename",
+							"filename", filename,
+							"content_disposition", contentDisp)
+
+						// Try to extract the full filename from Content-Disposition header
+						if cd := contentDisp; cd != "" {
+							if filenameMatch := regexp.MustCompile(`filename="([^"]+)"`).FindStringSubmatch(cd); len(filenameMatch) > 1 {
+								fullFilename := filenameMatch[1]
+								if fullFilename != filename && len(fullFilename) > len(filename) {
+									logger.Debug("fixed truncated filename",
+										"original", filename,
+										"fixed", fullFilename)
+									filename = fullFilename
+								}
+							} else if filenameMatch := regexp.MustCompile(`filename=([^;]+)`).FindStringSubmatch(cd); len(filenameMatch) > 1 {
+								fullFilename := strings.Trim(filenameMatch[1], `"' `)
+								if fullFilename != filename && len(fullFilename) > len(filename) {
+									logger.Debug("fixed truncated filename",
+										"original", filename,
+										"fixed", fullFilename)
+									filename = fullFilename
+								}
+							}
+						}
+
+						// If still no extension, try to determine from Content-Type
+						if !strings.Contains(filename, ".") {
+							contentType := contentType
+							if idx := strings.Index(contentType, ";"); idx != -1 {
+								contentType = contentType[:idx]
+							}
+							contentType = strings.TrimSpace(strings.ToLower(contentType))
+							if ext := GetExtensionFromContentType(contentType); ext != "" {
+								newFilename := filename + ext
+								logger.Debug("added extension based on content type",
+									"original", filename,
+									"content_type", contentType,
+									"extension", ext,
+									"new_filename", newFilename)
+								filename = newFilename
+							}
+						}
 					}
 
 					nestedAttachments = append(nestedAttachments, parsemail.Attachment{
@@ -402,4 +449,69 @@ func GenerateFilename(filename string, timestamp time.Time, pattern string) stri
 	}
 
 	return result
+}
+
+// GetExtensionFromContentType returns a file extension for a content type
+func GetExtensionFromContentType(contentType string) string {
+	// Extract the main content type
+	mainType := contentType
+	if idx := strings.Index(contentType, ";"); idx != -1 {
+		mainType = contentType[:idx]
+	}
+	mainType = strings.TrimSpace(strings.ToLower(mainType))
+
+	// Common MIME types to extensions mapping
+	mimeToExt := map[string]string{
+		"application/pdf":               ".pdf",
+		"application/msword":            ".doc",
+		"application/vnd.ms-excel":      ".xls",
+		"application/vnd.ms-powerpoint": ".ppt",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   ".docx",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         ".xlsx",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+		"text/plain":                   ".txt",
+		"text/html":                    ".html",
+		"text/csv":                     ".csv",
+		"image/jpeg":                   ".jpg",
+		"image/png":                    ".png",
+		"image/gif":                    ".gif",
+		"image/bmp":                    ".bmp",
+		"image/tiff":                   ".tiff",
+		"image/webp":                   ".webp",
+		"audio/mpeg":                   ".mp3",
+		"audio/wav":                    ".wav",
+		"audio/ogg":                    ".ogg",
+		"video/mp4":                    ".mp4",
+		"video/mpeg":                   ".mpeg",
+		"video/quicktime":              ".mov",
+		"application/zip":              ".zip",
+		"application/x-rar-compressed": ".rar",
+		"application/x-tar":            ".tar",
+		"application/x-7z-compressed":  ".7z",
+		"application/json":             ".json",
+		"application/xml":              ".xml",
+		"application/javascript":       ".js",
+		"application/octet-stream":     ".bin",
+	}
+
+	// Check if we have a mapping for this content type
+	if ext, ok := mimeToExt[mainType]; ok {
+		return ext
+	}
+
+	// Default extension based on general type
+	if strings.HasPrefix(mainType, "image/") {
+		return ".img"
+	} else if strings.HasPrefix(mainType, "text/") {
+		return ".txt"
+	} else if strings.HasPrefix(mainType, "audio/") {
+		return ".audio"
+	} else if strings.HasPrefix(mainType, "video/") {
+		return ".video"
+	} else if strings.HasPrefix(mainType, "application/") {
+		return ".bin"
+	}
+
+	// Default fallback
+	return ".bin"
 }
