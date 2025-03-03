@@ -42,14 +42,16 @@ func (gd *GDriveStorage) Save(filename string, content []byte, config Attachment
 	}
 
 	// Process filename
+	gd.logger.Debug("processing filename", "filename", filename)
 	if config.SanitizeFilenames {
 		filename = SanitizeFilename(filename)
 	}
+	gd.logger.Debug("sanitized filename", "filename", filename)
 
 	// Apply the naming pattern
 	now := time.Now().UTC()
 	filename = GenerateFilename(filename, now, config.FilenamePattern)
-
+	gd.logger.Debug("generated filename", "filename", filename)
 	// Process storage path with date variables
 	folderPath := config.StoragePath
 	if strings.Contains(folderPath, "${") {
@@ -63,6 +65,7 @@ func (gd *GDriveStorage) Save(filename string, content []byte, config Attachment
 	}
 
 	// Create file metadata
+	gd.logger.Debug("creating file metadata", "filename", filename, "folderID", folderID)
 	file := &drive.File{
 		Name:     filename,
 		Parents:  []string{folderID},
