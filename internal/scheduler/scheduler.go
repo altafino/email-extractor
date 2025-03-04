@@ -55,8 +55,10 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 	}
 
 	// Check stop time first to avoid scheduling jobs that won't run
+	var stopTime time.Time
 	if cfg.Scheduling.StopAt != "" {
-		stopTime, err := time.Parse(time.RFC3339, cfg.Scheduling.StopAt)
+		var err error
+		stopTime, err = time.Parse(time.RFC3339, cfg.Scheduling.StopAt)
 		if err != nil {
 			return fmt.Errorf("invalid stop time: %w", err)
 		}
@@ -73,6 +75,15 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 
 	// Create the job function
 	jobFunc := func() {
+		// Check if we've passed the stop time
+		if !stopTime.IsZero() && time.Now().UTC().After(stopTime) {
+			s.logger.Info("job has reached stop time, removing schedule",
+				"config_id", cfg.Meta.ID,
+				"stop_at", stopTime)
+			s.RemoveJob(cfg.Meta.ID)
+			return
+		}
+
 		s.logger.Info("executing scheduled job",
 			"config_id", cfg.Meta.ID,
 			"time", time.Now().UTC(),
@@ -90,23 +101,7 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 	// Configure the schedule
 	job := s.scheduler.Every(cfg.Scheduling.FrequencyAmount)
 
-	// If start_now is true, run the job immediately
-	if cfg.Scheduling.StartNow {
-		s.logger.Info("running job immediately",
-			"config_id", cfg.Meta.ID,
-		)
-		jobFunc()
-	}
-
-	// Configure start time if specified
-	if cfg.Scheduling.StartAt != "" {
-		startTime, err := time.Parse(time.RFC3339, cfg.Scheduling.StartAt)
-		if err != nil {
-			return fmt.Errorf("invalid start time: %w", err)
-		}
-		job = job.StartAt(startTime)
-	}
-
+	// Configure frequency
 	switch cfg.Scheduling.FrequencyEvery {
 	case "minute":
 		job = job.Minutes()
@@ -122,16 +117,29 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 		return fmt.Errorf("invalid frequency: %s", cfg.Scheduling.FrequencyEvery)
 	}
 
-	// Configure stop time if specified
-	if cfg.Scheduling.StopAt != "" {
-		stopTime, _ := time.Parse(time.RFC3339, cfg.Scheduling.StopAt) // Already validated above
-		job = job.WaitForSchedule().LimitRunsTo(1).StartAt(stopTime)
+	// Configure start time
+	if cfg.Scheduling.StartAt != "" {
+		startTime, err := time.Parse(time.RFC3339, cfg.Scheduling.StartAt)
+		if err != nil {
+			return fmt.Errorf("invalid start time: %w", err)
+		}
+
+		// Only set StartAt if the time is in the future
+		if startTime.After(time.Now().UTC()) {
+			job = job.StartAt(startTime)
+		}
 	}
 
 	// Set the job function
 	scheduledJob, err := job.Do(jobFunc)
 	if err != nil {
 		return fmt.Errorf("failed to schedule job: %w", err)
+	}
+
+	// If start_now is true, run the job immediately
+	if cfg.Scheduling.StartNow {
+		s.logger.Info("running job immediately", "config_id", cfg.Meta.ID)
+		go jobFunc() // Run in a goroutine to avoid blocking
 	}
 
 	// Store the job
@@ -143,6 +151,7 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 		"start_now", cfg.Scheduling.StartNow,
 		"start_at", cfg.Scheduling.StartAt,
 		"stop_at", cfg.Scheduling.StopAt,
+		"next_run", scheduledJob.NextRun(),
 	)
 
 	return nil
