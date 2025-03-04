@@ -414,13 +414,11 @@ func (c *IMAPClient) extractAndProcessEmail(ctx context.Context, msg *imap.Messa
 
 	// Try multiple header variations for From field
 	sender = parser.ExtractHeaderValue(headers, []string{"From", "FROM", "from", "Sender", "SENDER", "sender"})
-	c.logger.Debug("extracted sender", "sender", sender, "raw_headers", headers)
+	
 
 	// Try multiple header variations for Subject field
 	subject = parser.ExtractHeaderValue(headers, []string{"Subject", "SUBJECT", "subject"})
-	if subject != "" {
-		c.logger.Debug("extracted subject", "subject", subject)
-	}
+
 
 	// Try to parse date with multiple formats and header names
 	sentAt = parser.ExtractDateValue(headers, c.logger)
@@ -567,7 +565,7 @@ func (c *IMAPClient) extractAndProcessEmail(ctx context.Context, msg *imap.Messa
 			}
 
 			savedAttachments = append(savedAttachments, filepath.Base(finalPath))
-			c.logger.Info("saved attachment",
+			c.logger.Debug("saved attachment",
 				"uid", msg.Uid,
 				"filename", a.Filename,
 				"path", finalPath)
@@ -629,7 +627,7 @@ func (c *IMAPClient) extractAndProcessEmail(ctx context.Context, msg *imap.Messa
 		}
 	}
 
-	c.logger.Info("processed message",
+	c.logger.Debug("processed message",
 		"uid", msg.Uid,
 		"saved_attachments", len(savedAttachments),
 		"error_attachments", len(attachmentErrors))
