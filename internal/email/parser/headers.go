@@ -80,7 +80,7 @@ func ExtractHeaderValue(headers map[string][]string, headerNames []string) strin
 }
 
 // ExtractDateValue extracts and parses date from headers
-func ExtractDateValue(headers map[string][]string, logger *slog.Logger) time.Time {
+func ExtractDateValue(headers map[string][]string, logger *slog.Logger) (time.Time, error) {
 	// Try multiple header names for date - expanded list
 	dateHeaderNames := []string{
 		"Date", "DATE", "date",
@@ -222,7 +222,7 @@ func ExtractDateValue(headers map[string][]string, logger *slog.Logger) time.Tim
 					"date_string", dateStr,
 					"format", format,
 					"parsed_time", parsedTime)
-				return parsedTime
+				return parsedTime,nil
 			}
 		}
 
@@ -238,7 +238,7 @@ func ExtractDateValue(headers map[string][]string, logger *slog.Logger) time.Tim
 						"cleaned", cleanDateStr,
 						"format", format,
 						"parsed_time", parsedTime)
-					return parsedTime
+					return parsedTime, nil
 				}
 			}
 		}
@@ -253,6 +253,8 @@ func ExtractDateValue(headers map[string][]string, logger *slog.Logger) time.Tim
 		logger.Debug("no date header found", "available_headers", strings.Join(headerKeys, ", "), "headers", headers)
 	}
 
+
 	// If we can't parse the date, use current time
-	return time.Now().UTC()
+	// return error
+	return time.Now().UTC(), fmt.Errorf("failed to parse date")
 }

@@ -2,7 +2,7 @@
 
 A service that automatically downloads emails and extracts attachments using POP3/IMAP protocols, with support for multiple accounts and extensive configuration options.
 
-> **IMPORTANT NOTICE:** This project is currently in **Alpha Stage** and should not be used in production environments. It is under active development with core functionality still being implemented and tested. Contributors are welcome to help improve stability and feature completeness.
+> **IMPORTANT NOTICE:** This project is currently in **Beta Stage** and should not be used in production environments. It is under active development with core functionality still being implemented and tested. Contributors are welcome to help improve stability and feature completeness.
 
 
 ## Features
@@ -30,7 +30,7 @@ A service that automatically downloads emails and extracts attachments using POP
     - [x] Google Drive
     - [ ] S3 compatible Bucket Storage
   - [x] Filter for TimePeriod IMAP
-  - [ ] Filter for TimePeriod POP3 (not working)
+  - [x] Filter for TimePeriod POP3
 
 ### Security
 - [x] TLS Configuration

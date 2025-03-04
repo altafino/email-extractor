@@ -123,7 +123,7 @@ func ApplyTemplate(cfg *types.Config, templateName string) error {
 	merged.Scheduling.Enabled = originalValues["scheduling.enabled"].(bool)
 	merged.Email.Protocols.IMAP.Enabled = originalValues["imap.enabled"].(bool)
 	merged.Email.Protocols.POP3.Enabled = originalValues["pop3.enabled"].(bool)
-	
+
 	// Only restore API keys if they were not empty in the original config
 	if len(originalValues["api_keys"].([]string)) > 0 {
 		merged.Security.APIKeys = originalValues["api_keys"].([]string)
