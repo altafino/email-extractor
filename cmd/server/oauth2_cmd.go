@@ -82,7 +82,7 @@ func generateOAuth2Token(cmd *cobra.Command, args []string) {
 		providerName,
 		cfg.Email.Protocols.IMAP.Security.OAuth2.ClientID,
 		cfg.Email.Protocols.IMAP.Security.OAuth2.ClientSecret,
-		"urn:ietf:wg:oauth:2.0:oob", // Default redirect URL for installed applications
+		"http://localhost:8085/oauth/callback", // Use local redirect URI
 	)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -93,13 +93,19 @@ func generateOAuth2Token(cmd *cobra.Command, args []string) {
 	authURL := oauth2Config.AuthCodeURL("state", goauth2.AccessTypeOffline, goauth2.ApprovalForce)
 	
 	fmt.Printf("Please open the following URL in your browser:\n\n%s\n\n", authURL)
-	fmt.Print("Enter the authorization code: ")
+	fmt.Println("Waiting for authentication...")
 	
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		fmt.Printf("Error: Failed to read authorization code: %v\n", err)
+	// Create logger for the OAuth2 server
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	
+	// Start the local server and wait for the authorization code
+	authCode, err := oauth2.StartLocalServer(context.Background(), logger)
+	if err != nil {
+		fmt.Printf("Error: Failed to get authorization code: %v\n", err)
 		os.Exit(1)
 	}
+	
+	fmt.Println("Authorization code received, exchanging for token...")
 	
 	// Exchange authorization code for token
 	token, err := oauth2Config.Exchange(context.Background(), authCode)
@@ -119,7 +125,6 @@ func generateOAuth2Token(cmd *cobra.Command, args []string) {
 	accountID := fmt.Sprintf("%s_%s", cfg.Meta.ID, cfg.Email.Protocols.IMAP.Username)
 	
 	// Create token manager
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	tokenManager, err := oauth2.NewTokenManager(oauth2Config, tokenDir, accountID, logger)
 	if err != nil {
 		fmt.Printf("Error: Failed to create token manager: %v\n", err)

@@ -155,3 +155,79 @@ The service is in active development with core functionality working:
 ## License
 
 This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
+
+## OAuth2 Authentication
+
+Email Extractor now supports OAuth2 authentication for IMAP servers. This provides a more secure way to authenticate with email providers like Gmail and Microsoft Outlook without storing your password.
+
+### Configuration
+
+To use OAuth2 authentication, update your configuration file as follows:
+
+```yaml
+email:
+  protocols:
+    imap:
+      # ... other settings ...
+      security:
+        oauth2:
+          enabled: true
+          provider: "google"  # or "microsoft"
+          client_id: "your-client-id"
+          client_secret: "your-client-secret"
+          token_storage_path: "/path/to/tokens"
+```
+
+### Obtaining OAuth2 Credentials
+
+#### For Google:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Navigate to "APIs & Services" > "Credentials"
+4. Click "Create Credentials" > "OAuth client ID"
+5. Select "Desktop app" as the application type
+6. Enter a name for your client ID
+7. Copy the Client ID and Client Secret to your configuration file
+8. **Important**: Add `http://localhost:8085/oauth/callback` as an authorized redirect URI
+
+#### For Microsoft:
+
+1. Go to the [Azure Portal](https://portal.azure.com/)
+2. Navigate to "Azure Active Directory" > "App registrations"
+3. Click "New registration"
+4. Enter a name for your application
+5. Select "Accounts in any organizational directory and personal Microsoft accounts"
+6. Set the redirect URI to `http://localhost:8085/oauth/callback`
+7. Click "Register"
+8. Copy the Application (client) ID to your configuration file
+9. Navigate to "Certificates & secrets"
+10. Create a new client secret and copy it to your configuration file
+
+### Managing OAuth2 Tokens
+
+Email Extractor provides CLI commands to manage OAuth2 tokens:
+
+#### Generate a token:
+
+```
+email-extractor oauth2 generate default
+```
+
+This will open a browser window to authenticate with the provider. After authentication, you'll be redirected to a local page confirming the success.
+
+#### List tokens:
+
+```
+email-extractor oauth2 list
+```
+
+#### Delete a token:
+
+```
+email-extractor oauth2 delete default
+```
+
+### Automatic Token Refresh
+
+OAuth2 tokens are automatically refreshed when they expire, so you don't need to manually regenerate them.
