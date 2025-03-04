@@ -90,6 +90,8 @@ func LoadConfigs(configDir string) error {
 			"id", cfg.Meta.ID,
 			"pop3_server", cfg.Email.Protocols.POP3.Server,
 			"pop3_username", cfg.Email.Protocols.POP3.Username,
+			"imap_server", cfg.Email.Protocols.IMAP.Server,
+			"imap_username", cfg.Email.Protocols.IMAP.Username,
 		)
 	}
 
