@@ -40,8 +40,8 @@ func NewIMAPClient(config *types.Config, logger *slog.Logger) (*IMAPClient, erro
 	var tokenManager *oauth2.TokenManager
 
 	if config.Email.Protocols.IMAP.Security.OAuth2.Enabled {
-		// Create token storage directory
-		tokenDir := filepath.Join(config.Email.Attachments.StoragePath, ".tokens")
+		// Use the configured token storage path
+		tokenDir := config.Email.Protocols.IMAP.Security.OAuth2.TokenStoragePath
 
 		// Get the OAuth2 provider config
 		providerName := config.Email.Protocols.IMAP.Security.OAuth2.Provider
@@ -137,6 +137,7 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 	// Authenticate based on the configured method
 	if c.config.Email.Protocols.IMAP.Security.OAuth2.Enabled {
 		if err := c.authenticateWithOAuth2(ctx); err != nil {
+			c.logger.Error("OAuth2 authentication failed", "error", err)
 			return fmt.Errorf("OAuth2 authentication failed: %w", err)
 		}
 	} else {
@@ -170,6 +171,7 @@ func (c *IMAPClient) authenticateWithOAuth2(ctx context.Context) error {
 
 	// Authenticate with the IMAP server
 	if err := c.client.Authenticate(saslClient); err != nil {
+		c.logger.Error("OAuth2 authentication failed", "error", err)
 		return fmt.Errorf("OAuth2 authentication failed: %w", err)
 	}
 

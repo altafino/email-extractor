@@ -9,6 +9,11 @@ import (
 
 // GetGoogleConfig returns the OAuth2 config for Google
 func GetGoogleConfig(clientID, clientSecret, redirectURL string) *oauth2.Config {
+	// If no redirect URL is provided, use a local one
+	if redirectURL == "" || redirectURL == "urn:ietf:wg:oauth:2.0:oob" {
+		redirectURL = "http://localhost:8085/oauth/callback"
+	}
+	
 	return &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,

@@ -57,6 +57,7 @@ type Config struct {
 						Provider     string `yaml:"provider"`
 						ClientID     string `yaml:"client_id"`
 						ClientSecret string `yaml:"client_secret"`
+						TokenStoragePath string `yaml:"token_storage_path"`
 					} `yaml:"oauth2"`
 				} `yaml:"security"`
 			} `yaml:"imap"`
@@ -89,6 +90,7 @@ type Config struct {
 						Provider     string `yaml:"provider"`
 						ClientID     string `yaml:"client_id"`
 						ClientSecret string `yaml:"client_secret"`
+						TokenStoragePath string `yaml:"token_storage_path"`
 					} `yaml:"oauth2"`
 				} `yaml:"security"`
 			} `yaml:"pop3"`
