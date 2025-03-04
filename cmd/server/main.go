@@ -81,9 +81,19 @@ func initConfig() {
 		os.Exit(1)
 	}
 
-	// Update logger with loaded configuration
+	// Apply command line flags to override config values
+	// First, handle the specific config if configID is provided
 	if configID != "" {
 		if cfg, err := config.GetConfig(configID); err == nil {
+			// Apply command line overrides for logging
+			if logLevel != "" {
+				cfg.Logging.Level = logLevel
+			}
+			if logFormat != "" {
+				cfg.Logging.Format = logFormat
+			}
+			
+			// Update logger with the modified configuration
 			logger = applogger.Setup(cfg)
 			slog.SetDefault(logger)
 		}
@@ -91,6 +101,15 @@ func initConfig() {
 		// Use first enabled config for logging settings
 		configs := config.GetEnabledConfigs()
 		if len(configs) > 0 {
+			// Apply command line overrides for logging
+			if logLevel != "" {
+				configs[0].Logging.Level = logLevel
+			}
+			if logFormat != "" {
+				configs[0].Logging.Format = logFormat
+			}
+			
+			// Update logger with the modified configuration
 			logger = applogger.Setup(configs[0])
 			slog.SetDefault(logger)
 		}

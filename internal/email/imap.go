@@ -45,7 +45,7 @@ func NewIMAPClient(config *types.Config, logger *slog.Logger) (*IMAPClient, erro
 func (c *IMAPClient) Connect(ctx context.Context) error {
 	server := fmt.Sprintf("%s:%d", c.config.Email.Protocols.IMAP.Server, c.config.Email.Protocols.IMAP.DefaultPort)
 
-	c.logger.Info("connecting to IMAP server",
+	c.logger.Debug("connecting to IMAP server",
 		"server", c.config.Email.Protocols.IMAP.Server,
 		"port", c.config.Email.Protocols.IMAP.DefaultPort,
 		"tls_enabled", c.config.Email.Protocols.IMAP.Security.TLS.Enabled,
@@ -106,7 +106,7 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 		return fmt.Errorf("IMAP login failed: %w", err)
 	}
 
-	c.logger.Info("successfully connected to IMAP server and logged in")
+	c.logger.Debug("successfully connected to IMAP server and logged in")
 	return nil
 }
 
@@ -179,7 +179,7 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 		return ctx.Err()
 	}
 
-	c.logger.Info("processing message", "uid", msg.Uid)
+	c.logger.Debug("processing message", "uid", msg.Uid)
 
 	// Early check for nil message
 	if msg == nil || msg.Envelope == nil {

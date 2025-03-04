@@ -152,6 +152,7 @@ func (s *Scheduler) UpdateJob(cfg *types.Config) error {
 		"start_at", cfg.Scheduling.StartAt,
 		"stop_at", cfg.Scheduling.StopAt,
 		"next_run", scheduledJob.NextRun(),
+		"last_run", scheduledJob.LastRun(),
 	)
 
 	return nil

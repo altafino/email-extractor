@@ -110,7 +110,7 @@ func (s *Service) ProcessEmails() error {
 
 	// Check which protocol is enabled
 	if !s.cfg.Email.Protocols.POP3.Enabled && !s.cfg.Email.Protocols.IMAP.Enabled {
-		s.logger.Info("No email protocols enabled, skipping email processing",
+		s.logger.Warn("No email protocols enabled, skipping email processing",
 			"config_id", s.cfg.Meta.ID,
 		)
 		return nil
@@ -118,7 +118,7 @@ func (s *Service) ProcessEmails() error {
 
 	// Process IMAP if enabled
 	if s.cfg.Email.Protocols.IMAP.Enabled {
-		s.logger.Info("Starting IMAP processing",
+		s.logger.Debug("Starting IMAP processing",
 			"config_id", s.cfg.Meta.ID,
 			"server", s.cfg.Email.Protocols.IMAP.Server,
 			"username", s.cfg.Email.Protocols.IMAP.Username,
@@ -143,7 +143,7 @@ func (s *Service) ProcessEmails() error {
 			DeleteAfterDownload: s.cfg.Email.Protocols.IMAP.DeleteAfterDownload,
 			Folders:             s.cfg.Email.Protocols.IMAP.Folders,
 		}
-		s.logger.Info("emailCfg", "emailCfg", emailCfg)
+		s.logger.Debug("emailCfg", "emailCfg", emailCfg)
 
 		client, err := NewIMAPClient(s.cfg, s.logger)
 		if err != nil {
@@ -161,19 +161,19 @@ func (s *Service) ProcessEmails() error {
 			s.logger.Error("failed to fetch messages", "error", err)
 			return fmt.Errorf("failed to fetch messages: %w", err)
 		}
-		s.logger.Info("successfully fetched messages")
+		s.logger.Debug("successfully fetched messages")
 
 		// The results variable is no longer needed since FetchMessages returns an error
 		// results := client.FetchMessages(context.Background())
 	} else {
-		s.logger.Info("IMAP processing disabled, skipping")
+		s.logger.Debug("IMAP processing disabled, skipping")
 	}
 
 	// Process POP3 if enabled - explicitly check the Enabled flag
 	if s.cfg.Email.Protocols.POP3.Enabled == false {
-		s.logger.Info("POP3 processing disabled, skipping")
+		s.logger.Debug("POP3 processing disabled, skipping")
 	} else {
-		s.logger.Info("Starting POP3 processing",
+		s.logger.Debug("Starting POP3 processing",
 			"config_id", s.cfg.Meta.ID,
 			"server", s.cfg.Email.Protocols.POP3.Server,
 			"username", s.cfg.Email.Protocols.POP3.Username,
@@ -247,7 +247,7 @@ func (s *Service) ProcessEmails() error {
 				continue
 			}
 
-			s.logger.Info("processed email",
+			s.logger.Debug("processed email",
 				"message_id", result.MessageID,
 				"subject", result.Subject,
 				"attachments", len(result.Attachments),
