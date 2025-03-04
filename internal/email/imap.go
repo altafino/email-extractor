@@ -421,7 +421,12 @@ func (c *IMAPClient) extractAndProcessEmail(ctx context.Context, msg *imap.Messa
 
 
 	// Try to parse date with multiple formats and header names
-	sentAt = parser.ExtractDateValue(headers, c.logger)
+	sentAt, err = parser.ExtractDateValue(headers, c.logger)
+	if err != nil {
+		c.logger.Warn("failed to extract date from message headers", "error", err)
+		// Continue with empty date
+		sentAt = time.Time{}
+	}
 
 	c.logger.Debug("email info", "sender", sender, "subject", subject, "sent_at", sentAt)
 	if sender == "" {

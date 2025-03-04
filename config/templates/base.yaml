@@ -169,7 +169,7 @@ monitoring:
 scheduling:
   enabled: true
   frequency_every: "minute"
-  frequency_amount: 3
+  frequency_amount: 30
   start_now: true
   start_at: "2024-03-15T00:00:00Z"  # RFC3339 format
   stop_at: "2025-12-31T23:59:59Z"   # RFC3339 format 

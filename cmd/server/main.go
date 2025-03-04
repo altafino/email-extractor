@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/altafino/email-extractor/internal/validation"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/altafino/email-extractor/internal/validation"
 
 	"github.com/altafino/email-extractor/internal/app"
 	"github.com/altafino/email-extractor/internal/config"
@@ -92,7 +93,7 @@ func initConfig() {
 			if logFormat != "" {
 				cfg.Logging.Format = logFormat
 			}
-			
+
 			// Update logger with the modified configuration
 			logger = applogger.Setup(cfg)
 			slog.SetDefault(logger)
@@ -108,7 +109,7 @@ func initConfig() {
 			if logFormat != "" {
 				configs[0].Logging.Format = logFormat
 			}
-			
+
 			// Update logger with the modified configuration
 			logger = applogger.Setup(configs[0])
 			slog.SetDefault(logger)
