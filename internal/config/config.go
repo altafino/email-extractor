@@ -292,3 +292,45 @@ func tryFixDateFormat(dateStr string) string {
 	
 	return dateStr // Couldn't fix
 }
+
+// InitStore initializes the configuration store with the given directory
+func InitStore(configDir string) error {
+	// Check if the directory exists
+	if _, err := os.Stat(configDir); os.IsNotExist(err) {
+		return fmt.Errorf("config directory does not exist: %s", configDir)
+	}
+
+	// Check if templates directory exists
+	templatesDir := filepath.Join(configDir, "templates")
+	if _, err := os.Stat(templatesDir); os.IsNotExist(err) {
+		return fmt.Errorf("templates directory does not exist: %s", templatesDir)
+	}
+
+	// Initialize the store
+	store := &ConfigStore{
+		configs: make(map[string]*types.Config),
+	}
+
+	// Load templates
+	if err := LoadTemplates(templatesDir); err != nil {
+		return fmt.Errorf("failed to load templates: %w", err)
+	}
+
+	// Load configurations
+	if err := LoadConfigs(configDir); err != nil {
+		return fmt.Errorf("failed to load configurations: %w", err)
+	}
+
+	globalStore = store
+	return nil
+}
+
+// SetConfig sets a configuration with the given ID
+func SetConfig(id string, cfg *types.Config) {
+	if globalStore == nil {
+		globalStore = &ConfigStore{
+			configs: make(map[string]*types.Config),
+		}
+	}
+	globalStore.configs[id] = cfg
+}

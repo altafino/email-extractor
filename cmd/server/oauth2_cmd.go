@@ -8,15 +8,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/altafino/email-extractor/internal/config"
 	"github.com/altafino/email-extractor/internal/oauth2"
+	"github.com/altafino/email-extractor/internal/types"
 	"github.com/spf13/cobra"
 	goauth2 "golang.org/x/oauth2"
+	"gopkg.in/yaml.v3"
 )
 
-func init() {
+// CreateOAuth2Command creates and returns the OAuth2 command
+func CreateOAuth2Command() *cobra.Command {
 	// Create OAuth2 command
 	oauth2Cmd := &cobra.Command{
 		Use:   "oauth2",
@@ -55,8 +57,7 @@ func init() {
 	oauth2Cmd.AddCommand(listCmd)
 	oauth2Cmd.AddCommand(deleteCmd)
 	
-	// Add OAuth2 command to root command
-	rootCmd.AddCommand(oauth2Cmd)
+	return oauth2Cmd
 }
 
 func generateOAuth2Token(cmd *cobra.Command, args []string) {
@@ -108,7 +109,7 @@ func generateOAuth2Token(cmd *cobra.Command, args []string) {
 	}
 	
 	// Create token storage directory
-	tokenDir := filepath.Join(cfg.Email.Attachments.StoragePath, ".tokens")
+	tokenDir := cfg.Email.Protocols.IMAP.Security.OAuth2.TokenStoragePath
 	if err := os.MkdirAll(tokenDir, 0700); err != nil {
 		fmt.Printf("Error: Failed to create token directory: %v\n", err)
 		os.Exit(1)
@@ -145,7 +146,7 @@ func listOAuth2Tokens(cmd *cobra.Command, args []string) {
 	// Collect token directories from all configurations
 	for _, cfg := range configs {
 		if cfg.Email.Protocols.IMAP.Security.OAuth2.Enabled {
-			tokenDir := filepath.Join(cfg.Email.Attachments.StoragePath, ".tokens")
+			tokenDir := cfg.Email.Protocols.IMAP.Security.OAuth2.TokenStoragePath
 			tokenDirs[tokenDir] = true
 		}
 	}
@@ -222,7 +223,7 @@ func deleteOAuth2Token(cmd *cobra.Command, args []string) {
 	}
 	
 	// Create token storage directory
-	tokenDir := filepath.Join(cfg.Email.Attachments.StoragePath, ".tokens")
+	tokenDir := cfg.Email.Protocols.IMAP.Security.OAuth2.TokenStoragePath
 	
 	// Create account ID for token storage
 	accountID := fmt.Sprintf("%s_%s", cfg.Meta.ID, cfg.Email.Protocols.IMAP.Username)
@@ -243,4 +244,107 @@ func deleteOAuth2Token(cmd *cobra.Command, args []string) {
 	}
 	
 	fmt.Printf("OAuth2 token deleted for account %s\n", accountID)
+}
+
+// For standalone testing
+func main() {
+	// Initialize the config store
+	configDir := "/opt/email-extractor/config"
+	if envConfigDir := os.Getenv("CONFIG_DIR"); envConfigDir != "" {
+		configDir = envConfigDir
+	}
+	
+	// Initialize the config store
+	if err := initConfigStore(configDir); err != nil {
+		fmt.Printf("Error: Failed to initialize config store: %v\n", err)
+		fmt.Println("Using current directory as fallback...")
+		
+		// Try current directory as fallback
+		currentDir, err := os.Getwd()
+		if err != nil {
+			fmt.Printf("Error: Failed to get current directory: %v\n", err)
+			os.Exit(1)
+		}
+		
+		// Try to find config directory in current directory or parent directories
+		configPath := findConfigDir(currentDir)
+		if configPath == "" {
+			fmt.Println("Error: Could not find config directory")
+			os.Exit(1)
+		}
+		
+		fmt.Printf("Found config directory: %s\n", configPath)
+		if err := initConfigStore(configPath); err != nil {
+			fmt.Printf("Error: Failed to initialize config store with fallback path: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	
+	// Create the root command
+	rootCmd := &cobra.Command{
+		Use:   "email-extractor",
+		Short: "Email Extractor",
+		Long:  `Email Extractor is a service that automatically downloads emails and extracts attachments`,
+	}
+	
+	// Add the OAuth2 command to the root command
+	rootCmd.AddCommand(CreateOAuth2Command())
+	
+	// Execute the root command
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
+
+// initConfigStore initializes the configuration store
+func initConfigStore(configDir string) error {
+	// Check if the directory exists
+	if _, err := os.Stat(configDir); os.IsNotExist(err) {
+		return fmt.Errorf("config directory does not exist: %s", configDir)
+	}
+
+	// Load the default configuration
+	configFile := filepath.Join(configDir, "default.config.yaml")
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		return fmt.Errorf("default configuration file does not exist: %s", configFile)
+	}
+
+	// Read the configuration file
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to read configuration file: %w", err)
+	}
+
+	// Parse the configuration
+	var cfg types.Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("failed to parse configuration file: %w", err)
+	}
+
+	// Store the configuration
+	config.SetConfig("default", &cfg)
+
+	return nil
+}
+
+// findConfigDir tries to find the config directory in the current directory or parent directories
+func findConfigDir(startDir string) string {
+	// Check if the config directory exists in the current directory
+	configPath := filepath.Join(startDir, "config")
+	if _, err := os.Stat(configPath); err == nil {
+		// Check if default.config.yaml exists
+		if _, err := os.Stat(filepath.Join(configPath, "default.config.yaml")); err == nil {
+			return configPath
+		}
+	}
+	
+	// Check if we're at the root directory
+	parentDir := filepath.Dir(startDir)
+	if parentDir == startDir {
+		return "" // We've reached the root directory
+	}
+	
+	// Recursively check parent directories
+	return findConfigDir(parentDir)
 } 
