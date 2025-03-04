@@ -20,7 +20,7 @@ type Manager struct {
 // NewManager creates a new tracking manager
 func NewManager(cfg *types.Config, logger *slog.Logger) (*Manager, error) {
 	if !cfg.Email.Tracking.Enabled {
-		logger.Info("email tracking is disabled")
+		logger.Debug("email tracking is disabled")
 		return &Manager{
 			cfg:    cfg,
 			logger: logger,
@@ -36,7 +36,7 @@ func NewManager(cfg *types.Config, logger *slog.Logger) (*Manager, error) {
 		return nil, fmt.Errorf("failed to initialize tracking storage: %w", err)
 	}
 
-	logger.Info("initialized email tracking",
+	logger.Debug("initialized email tracking",
 		"storage_type", cfg.Email.Tracking.StorageType,
 		"storage_path", cfg.Email.Tracking.StoragePath)
 
