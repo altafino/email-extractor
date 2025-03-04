@@ -18,6 +18,7 @@ import (
 	"github.com/altafino/email-extractor/internal/email/attachment"
 	"github.com/altafino/email-extractor/internal/email/parser"
 	"github.com/altafino/email-extractor/internal/errorlog"
+	"github.com/altafino/email-extractor/internal/oauth2"
 	"github.com/altafino/email-extractor/internal/tracking"
 	"github.com/altafino/email-extractor/internal/types"
 	"github.com/emersion/go-imap"
@@ -26,18 +27,49 @@ import (
 
 // IMAPClient handles IMAP email operations
 type IMAPClient struct {
-	config     *types.Config
-	client     *client.Client
-	logger     *slog.Logger
-	attachment *AttachmentHandler
+	config       *types.Config
+	client       *client.Client
+	logger       *slog.Logger
+	attachment   *AttachmentHandler
+	tokenManager *oauth2.TokenManager
 }
 
 // NewIMAPClient creates a new IMAP client
 func NewIMAPClient(config *types.Config, logger *slog.Logger) (*IMAPClient, error) {
+	// Initialize token manager if OAuth2 is enabled
+	var tokenManager *oauth2.TokenManager
+
+	if config.Email.Protocols.IMAP.Security.OAuth2.Enabled {
+		// Create token storage directory
+		tokenDir := filepath.Join(config.Email.Attachments.StoragePath, ".tokens")
+
+		// Get the OAuth2 provider config
+		providerName := config.Email.Protocols.IMAP.Security.OAuth2.Provider
+		oauth2Config, err := oauth2.GetProviderConfig(
+			providerName,
+			config.Email.Protocols.IMAP.Security.OAuth2.ClientID,
+			config.Email.Protocols.IMAP.Security.OAuth2.ClientSecret,
+			"urn:ietf:wg:oauth:2.0:oob", // Default redirect URL for installed applications
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get OAuth2 provider config: %w", err)
+		}
+
+		// Create account ID for token storage
+		accountID := fmt.Sprintf("%s_%s", config.Meta.ID, config.Email.Protocols.IMAP.Username)
+
+		// Create token manager
+		tokenManager, err = oauth2.NewTokenManager(oauth2Config, tokenDir, accountID, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize OAuth2 token manager: %w", err)
+		}
+	}
+
 	return &IMAPClient{
-		config:     config,
-		logger:     logger,
-		attachment: NewAttachmentHandler(config, logger),
+		config:       config,
+		logger:       logger,
+		attachment:   NewAttachmentHandler(config, logger),
+		tokenManager: tokenManager,
 	}, nil
 }
 
@@ -49,6 +81,7 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 		"server", c.config.Email.Protocols.IMAP.Server,
 		"port", c.config.Email.Protocols.IMAP.DefaultPort,
 		"tls_enabled", c.config.Email.Protocols.IMAP.Security.TLS.Enabled,
+		"oauth2_enabled", c.config.Email.Protocols.IMAP.Security.OAuth2.Enabled,
 		"username", c.config.Email.Protocols.IMAP.Username,
 	)
 
@@ -101,12 +134,48 @@ func (c *IMAPClient) Connect(ctx context.Context) error {
 	// Set client timeout
 	c.client.Timeout = time.Duration(c.config.Email.DefaultTimeout) * time.Second
 
-	// Login
-	if err := c.client.Login(c.config.Email.Protocols.IMAP.Username, c.config.Email.Protocols.IMAP.Password); err != nil {
-		return fmt.Errorf("IMAP login failed: %w", err)
+	// Authenticate based on the configured method
+	if c.config.Email.Protocols.IMAP.Security.OAuth2.Enabled {
+		if err := c.authenticateWithOAuth2(ctx); err != nil {
+			return fmt.Errorf("OAuth2 authentication failed: %w", err)
+		}
+	} else {
+		// Use basic authentication
+		if err := c.client.Login(c.config.Email.Protocols.IMAP.Username, c.config.Email.Protocols.IMAP.Password); err != nil {
+			return fmt.Errorf("IMAP login failed: %w", err)
+		}
 	}
 
 	c.logger.Debug("successfully connected to IMAP server and logged in")
+	return nil
+}
+
+// authenticateWithOAuth2 performs OAuth2 authentication with the IMAP server
+func (c *IMAPClient) authenticateWithOAuth2(ctx context.Context) error {
+	if c.tokenManager == nil {
+		return fmt.Errorf("OAuth2 is enabled but token manager is not initialized")
+	}
+
+	// Get a valid token
+	accessToken, err := c.tokenManager.GetAccessToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get OAuth2 access token: %w", err)
+	}
+
+	// Create SASL client for OAuth2
+	saslClient := oauth2.NewXOAUTH2Client(
+		c.config.Email.Protocols.IMAP.Username,
+		accessToken,
+	)
+
+	// Authenticate with the IMAP server
+	if err := c.client.Authenticate(saslClient); err != nil {
+		return fmt.Errorf("OAuth2 authentication failed: %w", err)
+	}
+
+	// Start token refresh worker
+	c.tokenManager.StartRefreshWorker(ctx)
+
 	return nil
 }
 
@@ -414,11 +483,9 @@ func (c *IMAPClient) extractAndProcessEmail(ctx context.Context, msg *imap.Messa
 
 	// Try multiple header variations for From field
 	sender = parser.ExtractHeaderValue(headers, []string{"From", "FROM", "from", "Sender", "SENDER", "sender"})
-	
 
 	// Try multiple header variations for Subject field
 	subject = parser.ExtractHeaderValue(headers, []string{"Subject", "SUBJECT", "subject"})
-
 
 	// Try to parse date with multiple formats and header names
 	sentAt, err = parser.ExtractDateValue(headers, c.logger)

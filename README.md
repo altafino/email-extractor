@@ -17,6 +17,7 @@ A service that automatically downloads emails and extracts attachments using POP
 - [x] IMAP Protocol Support
   - [x] TLS Support
   - [x] Custom Port Configuration
+  - [ ] OAuth2 Support (in work)
 - [x] Attachment Handling
   - [x] File Type Filtering (configurable)
   - [x] Size Limits (configurable)
@@ -36,7 +37,7 @@ A service that automatically downloads emails and extracts attachments using POP
 - [x] TLS Configuration
   - [x] Minimum Version Control
   - [x] Certificate Verification
-- [ ] OAuth2 Support
+- [ ] OAuth2 Support (in work, for IMAP)
 - [ ] API Security
   - [ ] API Key Authentication
   - [ ] IP Allowlisting
