@@ -113,6 +113,91 @@ The `email.attachments.storage` section in `default.config.yaml` controls where 
 *   **`credentials_file`**:  (Required for `type: "gdrive"`) The path *inside the container* to the Google Drive service account credentials JSON file.  You should place this file in `/opt/email-extractor/config/keys/` on the host, and it will be mounted to `/config/keys/` inside the container.
 *   **`parent_folder_id`**: (Required for `type: "gdrive"`) The ID of the Google Drive folder where attachments should be stored.
 
+## Scheduling Configuration
+
+The `scheduling` section in your configuration file controls when and how often the service checks for new emails.
+
+### Basic Settings
+
+```yaml
+scheduling:
+  enabled: true                     # Enable or disable scheduling
+  frequency_every: "minute"         # Time unit (minute, hour, day, week, month)
+  frequency_amount: 5               # Run every X units of time
+  start_now: false                  # Whether to run immediately on startup
+  start_at: "2024-03-15T00:00:00Z"  # When to start scheduling (RFC3339 format)
+  stop_at: "2025-12-31T23:59:59Z"   # When to stop scheduling (RFC3339 format)
+```
+
+### Configuration Options
+
+- **`enabled`**: Set to `true` to enable scheduled email downloads, or `false` to disable.
+- **`frequency_every`**: The time unit for scheduling. Valid values:
+  - `minute`: Schedule by minutes
+  - `hour`: Schedule by hours
+  - `day`: Schedule by days
+  - `week`: Schedule by weeks
+  - `month`: Schedule by months
+- **`frequency_amount`**: How many units of time between runs (e.g., `5` with `frequency_every: "minute"` means run every 5 minutes)
+
+### Start and Stop Controls
+
+- **`start_now`**: When `true`, the job will run immediately when the service starts, then follow the schedule. When `false`, it will wait until the specified `start_at` time.
+- **`start_at`**: The date and time to start the scheduled job (in RFC3339 format: `YYYY-MM-DDTHH:MM:SSZ`). Required if `start_now` is `false`.
+- **`stop_at`**: Optional date and time to stop the scheduled job (in RFC3339 format). After this time, the job will no longer run.
+
+### Frequency Limits
+
+Each frequency type has maximum limits:
+- `minute`: Maximum 60 (once per minute to once per hour)
+- `hour`: Maximum 24 (once per hour to once per day)
+- `day`: Maximum 31 (once per day to once per month)
+- `week`: Maximum 52 (once per week to once per year)
+- `month`: Maximum 12 (once per month to once per year)
+
+### Examples
+
+#### Run Every 15 Minutes Starting Immediately
+
+```yaml
+scheduling:
+  enabled: true
+  frequency_every: "minute"
+  frequency_amount: 15
+  start_now: true
+```
+
+#### Run Daily at a Specific Time
+
+```yaml
+scheduling:
+  enabled: true
+  frequency_every: "day"
+  frequency_amount: 1
+  start_now: false
+  start_at: "2024-03-15T08:00:00Z"  # Start at 8:00 AM UTC
+```
+
+#### Run Weekly with an End Date
+
+```yaml
+scheduling:
+  enabled: true
+  frequency_every: "week"
+  frequency_amount: 1
+  start_now: false
+  start_at: "2024-03-18T09:00:00Z"  # Start on Monday at 9:00 AM UTC
+  stop_at: "2024-12-31T23:59:59Z"   # Stop at the end of the year
+```
+
+### Important Notes
+
+- All times must be in UTC and use RFC3339 format (`YYYY-MM-DDTHH:MM:SSZ`)
+- If `start_now` is `false`, you must provide a valid `start_at` time
+- If `start_at` is in the past when the service starts, the scheduler will use the next occurrence based on the frequency
+- If `stop_at` is provided and is in the past, the job will not be scheduled
+- The scheduler automatically handles service restarts and will resume based on the configured schedule
+
 ## Docker Compose Configuration
 ```yaml
 services:
