@@ -249,47 +249,47 @@ func tryFixDateFormat(dateStr string) string {
 	if _, err := time.Parse(time.RFC3339, dateStr); err == nil {
 		return dateStr
 	}
-	
+
 	// Split the date part from the time part
 	parts := strings.Split(dateStr, "T")
 	if len(parts) != 2 {
 		return dateStr // Can't fix if it doesn't have the expected T separator
 	}
-	
+
 	datePart := parts[0]
 	timePart := parts[1]
-	
+
 	// Split the date into components
 	dateComponents := strings.Split(datePart, "-")
 	if len(dateComponents) != 3 {
 		return dateStr // Can't fix if it doesn't have 3 components
 	}
-	
+
 	year := dateComponents[0]
 	month := dateComponents[1]
 	day := dateComponents[2]
-	
+
 	// Check if month is greater than 12 (invalid)
 	monthInt, err := strconv.Atoi(month)
 	if err != nil || monthInt <= 12 {
 		// Month is valid or not a number, no need to swap
 		return dateStr
 	}
-	
+
 	// Month is invalid, try to swap month and day
 	dayInt, err := strconv.Atoi(day)
 	if err != nil || dayInt > 31 {
 		// Day is invalid or not a number, can't fix
 		return dateStr
 	}
-	
+
 	// Swap month and day if day is a valid month number
 	if dayInt <= 12 {
 		// Create the fixed date string
 		fixedDateStr := fmt.Sprintf("%s-%02d-%02dT%s", year, dayInt, monthInt, timePart)
 		return fixedDateStr
 	}
-	
+
 	return dateStr // Couldn't fix
 }
 
