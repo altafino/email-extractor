@@ -10,6 +10,8 @@ import (
 	"io"
 	"log/slog"
 
+	"math"
+	"net"
 	"path/filepath"
 
 	"strings"
@@ -233,6 +235,7 @@ func (c *IMAPClient) FetchMessages(ctx context.Context) error {
 
 	for msg := range messages {
 		// Process each message
+		c.logger.Debug("processing message", "uid", msg.Uid, "seq_num", msg.SeqNum, "envelope", msg.Envelope)
 		if err := c.processMessage(ctx, msg, trackingManager, errorLogger); err != nil {
 			c.logger.Error("Failed to process message", "error", err, "uid", msg.Uid)
 		} else {
@@ -291,7 +294,8 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 		}
 	}
 
-	// Create a new fetch request for the message body
+	// Create a new fetch request for the message body because the initial fetch only retrieves the envelope and body structure.
+	// We need to fetch the entire message body to process its content and attachments.
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(msg.SeqNum)
 
@@ -301,8 +305,10 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 	// Channel to receive the message
 	messageData := make(chan *imap.Message, 1)
 	done := make(chan error, 1)
-
-	// Add context cancellation for fetch operation
+	// Add context cancellation for fetch operation to prevent resource leaks and ensure timely termination
+	// if the operation takes too long or the context is cancelled.
+	c.logger.Debug("fetching message body", "uid", msg.Uid)
+	c.logger.Debug("fetching message body", "uid", msg.Uid)
 	fetchCtx, cancel := context.WithTimeout(ctx, time.Duration(c.config.Email.DefaultTimeout)*time.Second)
 	defer cancel()
 
@@ -310,9 +316,18 @@ func (c *IMAPClient) processMessage(ctx context.Context, msg *imap.Message, trac
 	go func() {
 		select {
 		case <-fetchCtx.Done():
-			done <- fetchCtx.Err()
+			c.logger.Error("fetch context done", "uid", msg.Uid, "error", fetchCtx.Err())
 		default:
-			done <- c.client.Fetch(seqSet, items, messageData)
+			// Fetching the message body from the IMAP server
+			c.logger.Debug("starting fetch operation to retrieve message body", "uid", msg.Uid)
+			c.logger.Debug("starting fetch operation", "uid", msg.Uid)
+			err := c.client.Fetch(seqSet, items, messageData)
+			if err != nil {
+				c.logger.Error("fetch operation failed", "uid", msg.Uid, "error", err)
+			} else {
+				c.logger.Debug("fetch operation completed", "uid", msg.Uid)
+			}
+			done <- err
 		}
 	}()
 
@@ -716,4 +731,63 @@ func (c *IMAPClient) Close() error {
 		return c.client.Close()
 	}
 	return nil
+}
+
+// fetchMessageWithRetry fetches a message with retry logic
+func (c *IMAPClient) fetchMessageWithRetry(uid uint32, section string) ([]byte, error) {
+	var body []byte
+	var err error
+
+	backoff := 1 * time.Second
+	maxBackoff := 30 * time.Second
+	maxAttempts := 3
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		c.logger.Debug("fetching message body", "uid", uid, "attempt", attempt)
+
+		// Create a sequence set for this UID
+		seqSet := new(imap.SeqSet)
+		seqSet.AddNum(uid)
+
+		// Create a channel to receive the message
+		messages := make(chan *imap.Message, 1)
+		fetchErr := make(chan error, 1)
+
+		// Start fetch operation
+		go func() {
+			fetchErr <- c.client.UidFetch(seqSet, []imap.FetchItem{imap.FetchRFC822}, messages)
+		}()
+
+		// Get result
+		err = <-fetchErr
+		if err == nil {
+			// Read message from channel
+			if msg := <-messages; msg != nil {
+				for _, literal := range msg.Body {
+					body, err = io.ReadAll(literal)
+					if err == nil {
+						return body, nil
+					}
+				}
+			}
+		}
+
+		// Handle retry logic for errors
+		if netErr, ok := err.(net.Error); ok && (netErr.Timeout() || netErr.Temporary()) {
+			c.logger.Warn("temporary error fetching message, will retry",
+				"uid", uid,
+				"attempt", attempt,
+				"error", err,
+				"backoff_seconds", backoff.Seconds())
+
+			time.Sleep(backoff)
+			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
+			continue
+		}
+
+		// Non-retryable error
+		return nil, err
+	}
+
+	return nil, fmt.Errorf("failed to fetch message after %d attempts: %w", maxAttempts, err)
 }
